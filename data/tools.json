@@ -7,7 +7,17 @@
         {
           "name": "OSINT",
           "children": [
-            {"name": "Sherlock", "desc": "Поиск аккаунтов по нику на сотнях сайтов. Замените описание на своё.", "bot": "https://t.me/REPLACE_sherlock_bot", "eternal": "https://example.com/sherlock", "tags": ["username", "соцсети"]},
+            {"name": "Sherlock", "desc": "Sherlock — Telegram-бот для поиска информации
+
+Sherlock — популярный Telegram-бот, предназначенный для поиска данных. По объёму доступной базы данных он входит в число крупнейших среди аналогичных инструментов.
+
+Стоимость использования:
+
+Новым пользователям предоставляется 3 бесплатных запроса.
+
+После их исчерпания доступен 1 бесплатный запрос в сутки.
+
+", "bot": "https://t.me/REPLACE_sherlock_bot", "eternal": "https://example.com/sherlock", "tags": ["username", "соцсети"]},
             {"name": "Vector", "desc": "Описание бота Vector. Замените на своё.", "bot": "https://t.me/REPLACE_vector_bot", "eternal": "https://example.com/vector", "tags": ["osint"]},
             {"name": "Void", "desc": "Описание бота Void. Замените на своё.", "bot": "https://t.me/REPLACE_void_bot", "eternal": "https://example.com/void", "tags": ["osint"]}
           ]
