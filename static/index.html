@@ -1,28 +1,29 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>harledy project</title>
+<title>Harledy Project</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
+<h1>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
-  <span>harledy project</span>
-</header>
+  Harledy Project
+</h1>
+<button id="theme" type="button">Light Mode</button>
 
 <svg id="tree" role="img" aria-label="Дерево инструментов"></svg>
-<p id="hint">Наведите на узел, чтобы раскрыть ветку</p>
+<p id="hint">Загрузка…</p>
 <div id="deny" hidden></div>
 
 <aside id="panel" aria-hidden="true">
-  <button id="close" aria-label="Закрыть">&times;</button>
+  <button id="close" type="button" aria-label="Закрыть">&times;</button>
   <div id="crumb"></div>
   <h2 id="ptitle"></h2>
   <p id="pdesc"></p>
   <div id="ptags"></div>
-  <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота</a>
+  <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота ↗</a>
   <a id="btnEternal" class="btn ghost" target="_blank" rel="noopener">Вечная ссылка</a>
   <small>Вечная ссылка работает, если бот неактивен.</small>
 </aside>
