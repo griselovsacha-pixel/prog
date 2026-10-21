@@ -7,31 +7,27 @@
         {
           "name": "OSINT",
           "children": [
-            {"name": "Sherlock", "desc": "Sherlock — Telegram-бот для поиска информации
-
-Sherlock — популярный Telegram-бот, предназначенный для поиска данных. По объёму доступной базы данных он входит в число крупнейших среди аналогичных инструментов.
-
-Стоимость использования:
-
-Новым пользователям предоставляется 3 бесплатных запроса.
-
-После их исчерпания доступен 1 бесплатный запрос в сутки.
-
-", "bot": "https://t.me/REPLACE_sherlock_bot", "eternal": "https://example.com/sherlock", "tags": ["username", "соцсети"]},
-            {"name": "Vector", "desc": "Описание бота Vector. Замените на своё.", "bot": "https://t.me/REPLACE_vector_bot", "eternal": "https://example.com/vector", "tags": ["osint"]},
-            {"name": "Void", "desc": "Описание бота Void. Замените на своё.", "bot": "https://t.me/REPLACE_void_bot", "eternal": "https://example.com/void", "tags": ["osint"]}
-          ]
-        },
-        {
-          "name": "logger",
-          "children": [
-            {"name": "Logger", "desc": "Описание логгера. Замените на своё.", "bot": "https://t.me/REPLACE_logger_bot", "eternal": "https://example.com/logger", "tags": ["logger"]}
-          ]
-        },
-        {
-          "name": "snosers",
-          "children": [
-            {"name": "Snoser", "desc": "Описание бота. Замените на своё.", "bot": "https://t.me/REPLACE_snoser_bot", "eternal": "https://example.com/snoser", "tags": ["snoser"]}
+            {
+              "name": "Sherlock",
+              "desc": "Sherlock — Telegram-бот для поиска информации.\n\nПо объёму доступной базы данных входит в число крупнейших среди аналогичных инструментов.\n\nСтоимость использования:\n• Новым пользователям — 3 бесплатных запроса.\n• После их исчерпания — 1 бесплатный запрос в сутки.",
+              "bot": "https://t.me/ghost0723r4w_bot?start=_ref_4CMrsiqAk_fiMoWifjn",
+              "eternal": "https://736865726c6f636b.com/#4CMrsiqAk_fiMoWifjn",
+              "tags": ["username", "соцсети"]
+            },
+            {
+              "name": "Vector",
+              "desc": "Описание бота Vector. Замените на своё.",
+              "bot": "https://t.me/REPLACE_vector_bot",
+              "eternal": "https://example.com/vector",
+              "tags": ["osint"]
+            },
+            {
+              "name": "Void",
+              "desc": "Void (ныне «Глаз Бога») — относительно новый Telegram-бот для поиска информации, аналог Sherlock.\n\nПо объёму баз данных уступает Sherlock, но отличается качественным поиском по номеру телефона: возможные имена и ФИО, фотографии, объявления, соцсети (ВКонтакте, Facebook, Instagram, Twitter, Skype и др.) из открытых источников.\n\nСтоимость использования:\n• 2 бесплатных запроса при регистрации.\n• Далее — +1 запрос за каждого приглашённого реферала.",
+              "bot": "https://t.me/jdksosjvbot?start=XX9AXxJgVNo0",
+              "eternal": "https://glaz.gg/#XX9AXxJgVNo0",
+              "tags": ["osint", "номер телефона"]
+            }
           ]
         }
       ]
