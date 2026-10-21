@@ -1,0 +1,47 @@
+:root{--ink:#0a0a0a;--mute:#6b6b6b;--bg:#fff;--panel:380px}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);overflow:hidden;
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  background-image:radial-gradient(circle,#d4d4d4 1px,transparent 1.3px);
+  background-size:26px 26px;
+}
+header{position:fixed;top:22px;left:26px;display:flex;align-items:center;gap:10px;
+  font-size:15px;font-weight:700;z-index:2}
+header svg{width:20px;height:20px}
+#tree{width:100%;height:100%;display:block}
+#hint{position:fixed;left:26px;bottom:22px;font-size:13px;color:var(--mute);transition:opacity .5s}
+#hint.gone{opacity:0}
+#deny{position:fixed;inset:0;display:grid;place-items:center;text-align:center;
+  padding:24px;font-size:18px;font-weight:600;background:var(--bg);z-index:9}
+#deny[hidden]{display:none}
+
+.link{fill:none;stroke:var(--ink);stroke-width:2.5;stroke-linecap:round}
+.node{cursor:pointer}
+.node text{font-size:20px;font-weight:700;fill:var(--ink);user-select:none;transition:transform .25s}
+.node .ul{stroke:var(--ink);stroke-width:2.5;stroke-linecap:round;transition:stroke-width .2s}
+.node:hover .ul,.node.sel .ul{stroke-width:5}
+.node:hover text{transform:translateY(-2px)}
+
+#panel{position:fixed;top:0;right:0;height:100%;width:min(var(--panel),100%);
+  background:var(--bg);border-left:2px solid var(--ink);padding:30px 28px;z-index:5;
+  transform:translateX(100%);transition:transform .4s cubic-bezier(.2,.8,.2,1);
+  display:flex;flex-direction:column}
+#panel.open{transform:none}
+#close{position:absolute;top:14px;right:18px;border:0;background:none;font-size:32px;
+  line-height:1;cursor:pointer;color:var(--ink)}
+#crumb{font-size:13px;color:var(--mute);margin-bottom:10px;padding-right:30px}
+#ptitle{font-size:30px;font-weight:800;margin-bottom:14px}
+#pdesc{font-size:16px;line-height:1.55;margin-bottom:16px;max-width:60ch}
+#ptags{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:auto}
+#ptags span{border:1.5px solid var(--ink);border-radius:99px;padding:3px 11px;font-size:13px}
+.btn{display:block;text-align:center;padding:15px 16px;border-radius:12px;font-weight:700;
+  text-decoration:none;margin-top:12px;transition:transform .15s,opacity .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.primary{background:var(--ink);color:#fff}
+.btn.ghost{background:#e4e4e4;color:#3a3a3a}
+.btn[hidden]{display:none}
+#panel small{margin-top:10px;color:var(--mute);font-size:12px}
+:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
