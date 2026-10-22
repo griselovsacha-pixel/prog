@@ -41,11 +41,11 @@
           "name": "logger",
           "children": [
             {
-              "name": "Logger",
+              "name": "Rendy Logger",
               "desc": "Logger (Zer1xLoger) — Telegram-бот для логирования и перехвата данных.\n\nКлассический логгер, предназначенный для сбора и анализа информации.",
               "bot": "https://t.me/Zer1xLogerBot",
               "eternal": "https://t.me/rendymirrors",
-              "tags": ["logger"]
+              "tags": ["logger","ip"]
             }
           ]
         },
@@ -60,8 +60,8 @@
               "tags": ["snoser", "снос аккаунтов", "жалобы", "Telegram"]
             },
             {
-              "name": "Render Snos",
-              "desc": "Render Snos (в Telegram — Rendy Report) — Telegram-бот для массовой отправки жалоб и блокировки (сноса) аккаунтов, каналов и ботов.\n\nКлассический инструмент для сноса, включающий:\n• Подачу жалоб на пользователей и публичные каналы.\n• Снос Telegram-ботов и спам-аккаунтов.\n• Массовые репорты по открытым данным.\n• Анонимную отправку обращений в поддержку Telegram.",
+              "name": "Rendy Snos",
+              "desc": "Rendy Snos (в Telegram — Rendy Report) — Telegram-бот для массовой отправки жалоб и блокировки (сноса) аккаунтов, каналов и ботов.\n\nКлассический инструмент для сноса, включающий:\n• Подачу жалоб на пользователей и публичные каналы.\n• Снос Telegram-ботов и спам-аккаунтов.\n• Массовые репорты по открытым данным.\n• Анонимную отправку обращений в поддержку Telegram.",
               "bot": "https://t.me/sbask_bot?start=8521863420",
               "eternal": "https://rendy.cc/bot",
               "tags": ["snoser", "снос аккаунтов", "жалобы", "Telegram"]
