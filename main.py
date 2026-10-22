@@ -3,18 +3,21 @@ import html
 import json
 import logging
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiohttp
 import asyncpg
-from aiogram import Bot, Dispatcher, Router
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery, ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+)
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,10 +28,16 @@ log = logging.getLogger("harledy")
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 DATABASE_URL = os.environ["DATABASE_URL"]  # Supabase pooler URL (порт 6543)
 SITE_URL = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
+CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/+X8s2DkoSD7M3MTc6")
+CHANNEL_ID = int(os.environ["CHANNEL_ID"]) if os.environ.get("CHANNEL_ID") else None
 BASE = Path(__file__).parent
 
+# custom emoji
 EMOJI_MAIN = "5217848986433502482"
 EMOJI_LINK = "5193202823411546657"
+EMOJI_GATE = "6021409772350215140"
+ICON_CHANNEL = "6021452855167164269"
+ICON_DONE = "6021868492037298942"
 
 SCHEMA = """
 create table if not exists users(
@@ -46,26 +55,38 @@ create table if not exists visits(
     created_at timestamptz not null default now()
 );
 create index if not exists visits_user_idx on visits(tg_id, created_at desc);
+create table if not exists join_requests(
+    tg_id bigint not null,
+    chat_id bigint not null,
+    created_at timestamptz not null default now(),
+    primary key (tg_id, chat_id)
+);
 """
 
 pool: asyncpg.Pool | None = None
 router = Router()
 
 
+# ---------- helpers ----------
 def emoji(eid: str, fallback: str) -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 
-async def answer_safe(m: Message, text: str, fallback_text: str, **kw):
+def strip_emoji(text: str) -> str:
+    return re.sub(r"</?tg-emoji[^>]*>", "", text)
+
+
+async def send(bot: Bot, chat_id: int, text: str, kb=None, kb_plain=None):
+    """Отправка с кастом-эмодзи; если Telegram отклонил — шлём обычными смайликами."""
     try:
-        return await m.answer(text, **kw)
-    except TelegramBadRequest:
-        return await m.answer(fallback_text, **kw)
+        return await bot.send_message(chat_id, text, reply_markup=kb)
+    except TelegramBadRequest as e:
+        log.warning("rich send failed (%s), fallback to plain", e)
+        return await bot.send_message(chat_id, strip_emoji(text), reply_markup=kb_plain or kb)
 
 
-@router.message(CommandStart())
-async def on_start(m: Message):
-    u = m.from_user
+async def ensure_user(u) -> str:
+    """Создаёт юзера при первом контакте. Токен ссылки генерируется один раз и больше не меняется."""
     row = await pool.fetchrow(
         """insert into users(tg_id, full_name, username, token)
            values($1, $2, $3, $4)
@@ -74,22 +95,101 @@ async def on_start(m: Message):
            returning token""",
         u.id, u.full_name, u.username, secrets.token_urlsafe(18),
     )
-    link = f"{SITE_URL}/?k={row['token']}"
+    return row["token"]
+
+
+def is_our_channel(chat_id: int, invite_link: str | None) -> bool:
+    if CHANNEL_ID:
+        return chat_id == CHANNEL_ID
+    return bool(invite_link) and invite_link.rstrip("/") == CHANNEL_LINK.rstrip("/")
+
+
+async def has_access(bot: Bot, uid: int) -> bool:
+    """Доступ есть, если подана заявка в канал (или юзер уже участник канала, например админ)."""
+    if await pool.fetchval("select 1 from join_requests where tg_id = $1 limit 1", uid):
+        return True
+    if CHANNEL_ID:
+        try:
+            member = await bot.get_chat_member(CHANNEL_ID, uid)
+            return member.status in ("member", "administrator", "creator")
+        except TelegramAPIError as e:
+            log.warning("get_chat_member failed: %s", e)
+    return False
+
+
+def gate_kb(icons: bool) -> InlineKeyboardMarkup:
+    def btn(text, icon, **kw):
+        extra = {"icon_custom_emoji_id": icon} if icons else {}
+        return InlineKeyboardButton(text=text, **kw, **extra)
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn("Harledy project", ICON_CHANNEL, url=CHANNEL_LINK)],
+        [btn("Я подписался", ICON_DONE, callback_data="check_sub")],
+    ])
+
+
+async def send_gate(bot: Bot, chat_id: int):
+    await send(
+        bot, chat_id,
+        f"{emoji(EMOJI_GATE, '⚠️')} Для использования бота необходима подписка на канал!",
+        kb=gate_kb(True), kb_plain=gate_kb(False),
+    )
+
+
+async def send_menu(bot: Bot, u):
+    token = await ensure_user(u)
+    link = f"{SITE_URL}/?k={token}"
     name = html.escape(f"@{u.username}" if u.username else u.full_name)
-
-    await answer_safe(m, emoji(EMOJI_MAIN, "🔍"), "🔍")
-
+    await send(bot, u.id, emoji(EMOJI_MAIN, "🔍"))
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Открыть Harledy Project", url=link)]]
     )
-    await answer_safe(
-        m,
-        f"Приветствую, {name}!\nСборник инструментов Harledy Project доступен по ссылке ниже {emoji(EMOJI_LINK, '👇')}",
-        f"Приветствую, {name}!\nСборник инструментов Harledy Project доступен по ссылке ниже 👇",
-        reply_markup=kb,
+    await send(
+        bot, u.id,
+        f"Приветствую, {name}!\n"
+        f"Сборник инструментов Harledy Project доступен по ссылке ниже {emoji(EMOJI_LINK, '👇')}\n\n"
+        "<i>Сайт желательно открывать с компьютера, так как мобильная версия может работать некорректно.</i>",
+        kb=kb,
     )
 
 
+# ---------- handlers ----------
+@router.message(CommandStart())
+async def on_start(m: Message):
+    await ensure_user(m.from_user)  # ссылка создаётся сразу, при первом контакте
+    if await has_access(m.bot, m.from_user.id):
+        await send_menu(m.bot, m.from_user)
+    else:
+        await send_gate(m.bot, m.chat.id)
+
+
+@router.callback_query(F.data == "check_sub")
+async def on_check(cb: CallbackQuery):
+    await ensure_user(cb.from_user)
+    if await has_access(cb.bot, cb.from_user.id):
+        await cb.answer("Спасибо за подписку!", show_alert=True)
+        try:
+            await cb.message.delete()
+        except TelegramAPIError:
+            pass
+        await send_menu(cb.bot, cb.from_user)
+    else:
+        await cb.answer("Подпишитесь, пожалуйста!", show_alert=True)
+
+
+@router.chat_join_request()
+async def on_join_request(req: ChatJoinRequest):
+    link = req.invite_link.invite_link if req.invite_link else None
+    log.info("join request: user=%s chat_id=%s title=%r link=%s", req.from_user.id, req.chat.id, req.chat.title, link)
+    if not is_our_channel(req.chat.id, link):
+        return
+    await pool.execute(
+        "insert into join_requests(tg_id, chat_id) values($1, $2) on conflict do nothing",
+        req.from_user.id, req.chat.id,
+    )
+
+
+# ---------- web ----------
 async def self_ping():
     """Раз в 10 минут дёргаем свой /ping, чтобы Render free не засыпал."""
     url = os.environ.get("RENDER_EXTERNAL_URL") or SITE_URL
