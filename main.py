@@ -174,6 +174,7 @@ async def on_check(cb: CallbackQuery):
             pass
         await send_menu(cb.bot, cb.from_user)
     else:
+        log.info("check_sub: no join request / membership for user=%s", cb.from_user.id)
         await cb.answer("Подпишитесь, пожалуйста!", show_alert=True)
 
 
@@ -205,6 +206,24 @@ async def self_ping():
                 log.warning("self-ping failed: %s", e)
 
 
+async def diagnose(bot: Bot):
+    """Пишет в лог, видит ли бот канал и может ли получать заявки."""
+    me = await bot.get_me()
+    log.info("bot: @%s id=%s", me.username, me.id)
+    if not CHANNEL_ID:
+        log.warning("CHANNEL_ID не задан: членство в канале не проверяется, заявки ловятся только по тексту ссылки-приглашения")
+        return
+    try:
+        chat = await bot.get_chat(CHANNEL_ID)
+        m = await bot.get_chat_member(CHANNEL_ID, me.id)
+        can = getattr(m, "can_invite_users", None)
+        log.info("channel %r (%s): bot status=%s can_invite_users=%s", chat.title, CHANNEL_ID, m.status, can)
+        if m.status not in ("administrator", "creator") or can is False:
+            log.warning("БОТ НЕ АДМИН КАНАЛА или у него нет права «Приглашать пользователей»: заявки приходить не будут")
+    except TelegramAPIError as e:
+        log.warning("Не удалось проверить канал %s (неверный CHANNEL_ID или бот не в канале): %s", CHANNEL_ID, e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
@@ -216,6 +235,10 @@ async def lifespan(app: FastAPI):
     dp = Dispatcher()
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
+    try:
+        await diagnose(bot)
+    except Exception as e:
+        log.warning("diagnose failed: %s", e)
     tasks = [
         asyncio.create_task(dp.start_polling(bot, handle_signals=False)),
         asyncio.create_task(self_ping()),
