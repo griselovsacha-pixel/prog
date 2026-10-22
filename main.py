@@ -19,7 +19,7 @@ from aiogram.types import (
     CallbackQuery, ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO)
@@ -253,6 +253,25 @@ async def tools(request: Request, k: str = ""):
     )
     data = json.loads((BASE / "data" / "tools.json").read_text("utf-8"))
     return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+
+@app.middleware("http")
+async def about_subdomain(request: Request, call_next):
+    # about.<домен> открывает страницу «О нас» (когда подключён свой домен)
+    host = request.headers.get("host", "").split(":")[0]
+    if host.startswith("about.") and request.url.path == "/":
+        return FileResponse(BASE / "static" / "about.html")
+    return await call_next(request)
+
+
+@app.get("/about")
+async def about_page():
+    return FileResponse(BASE / "static" / "about.html")
+
+
+@app.get("/collab")
+async def collab_page():
+    return FileResponse(BASE / "static" / "collab.html")
 
 
 app.mount("/", StaticFiles(directory=BASE / "static", html=True), name="static")
