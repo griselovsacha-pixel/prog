@@ -4,13 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harledy Project</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="intro">
 <h1>
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+  <svg class="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
   Harledy Project
 </h1>
+<nav id="nav">
+  <a id="navAbout" href="/about">О нас</a>
+  <a id="navCollab" href="/collab">Сотрудничество</a>
+</nav>
 <button id="theme" type="button">Light Mode</button>
 
 <svg id="tree" role="img" aria-label="Дерево инструментов"></svg>
@@ -29,6 +33,6 @@
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="app.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
