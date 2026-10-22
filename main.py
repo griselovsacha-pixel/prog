@@ -29,7 +29,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 DATABASE_URL = os.environ["DATABASE_URL"]  # Supabase pooler URL (порт 6543)
 SITE_URL = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
 CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/+X8s2DkoSD7M3MTc6")
-CHANNEL_ID = int(os.environ["CHANNEL_ID"]) if os.environ.get("CHANNEL_ID") else None
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or -1004319976611)  # переменная окружения, если задана, главнее
 BASE = Path(__file__).parent
 
 # custom emoji
@@ -176,6 +176,12 @@ async def on_check(cb: CallbackQuery):
     else:
         log.info("check_sub: no join request / membership for user=%s", cb.from_user.id)
         await cb.answer("Подпишитесь, пожалуйста!", show_alert=True)
+
+
+@router.message(F.forward_origin.chat.type == "channel")
+async def on_forwarded(m: Message):
+    """Перешли боту пост из канала — он покажет ID канала для CHANNEL_ID."""
+    await m.answer(f"ID канала: <code>{m.forward_origin.chat.id}</code>")
 
 
 @router.chat_join_request()
