@@ -1,9 +1,9 @@
 :root{
-  --bg:#1b1b1b;--fg:#a9a9a9;--fg-h:#fff;--link:#5a5a5a;--accent:#4f86b3;--cfill:#2a3c4d;
+  --bg:#1b1b1b;--fg:#a9a9a9;--fg-h:#fff;--link:#626262;--accent:#4f86b3;--cfill:#2a3c4d;
   --panel:#242424;--line:#3a3a3a;--mute:#8a8a8a;--btn:#4a8fd6;--ghost:#3a3a3a;--ghost-t:#cfcfcf;
 }
 :root[data-theme="light"]{
-  --bg:#f4f4f2;--fg:#555;--fg-h:#000;--link:#b4b4b4;--accent:#2f6fa5;--cfill:#cfe0ee;
+  --bg:#f4f4f2;--fg:#555;--fg-h:#000;--link:#b0b0b0;--accent:#2f6fa5;--cfill:#cfe0ee;
   --panel:#fff;--line:#d8d8d8;--mute:#777;--btn:#2f6fa5;--ghost:#e6e6e6;--ghost-t:#444;
 }
 *{box-sizing:border-box;margin:0}
@@ -11,23 +11,45 @@ html,body{height:100%}
 body{background:var(--bg);color:var(--fg);overflow:hidden;
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
   transition:background .3s,color .3s}
-h1{position:fixed;top:18px;left:0;right:0;z-index:2;display:flex;justify-content:center;align-items:center;
-  gap:12px;font-size:40px;font-weight:800;color:var(--fg-h);pointer-events:none}
+
+/* заголовок: сначала по центру, потом уезжает наверх */
+h1{position:fixed;top:18px;left:50%;z-index:3;display:flex;align-items:center;gap:12px;
+  font-size:40px;font-weight:800;color:var(--fg-h);pointer-events:none;white-space:nowrap;
+  transform:translate(-50%,0) scale(1);transform-origin:center;
+  transition:top 1s cubic-bezier(.65,0,.35,1),transform 1s cubic-bezier(.65,0,.35,1);
+  animation:fadein .8s both}
+body.intro h1{top:50%;transform:translate(-50%,-50%) scale(1.6)}
 h1 svg{width:32px;height:32px}
-#theme{position:fixed;top:18px;right:20px;z-index:3;cursor:pointer;background:none;color:var(--fg);
-  border:1px solid var(--line);border-radius:6px;padding:6px 12px;font:inherit;font-size:13px}
-#theme:hover{color:var(--fg-h);border-color:var(--fg)}
+.lupa *{stroke-dasharray:60;stroke-dashoffset:60;animation:draw 1s .15s ease forwards}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+#nav{position:fixed;top:18px;left:20px;z-index:4;display:flex;gap:8px}
+#nav a,#theme{cursor:pointer;background:none;color:var(--fg);text-decoration:none;
+  border:1px solid var(--line);border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;
+  transition:color .2s,border-color .2s,background .2s,opacity .6s}
+#nav a:hover,#theme:hover{color:var(--fg-h);border-color:var(--fg)}
+#theme{position:fixed;top:18px;right:20px;z-index:4}
+#nav,#theme{transition:opacity .6s .5s}
+body.intro #nav,body.intro #theme{opacity:0;pointer-events:none}
+
 #tree{width:100%;height:100%;display:block;cursor:grab}
 #tree:active{cursor:grabbing}
-#hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);font-size:13px;color:var(--mute);transition:opacity .6s;white-space:nowrap}
-#hint.gone{opacity:0}
+#hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);font-size:13px;color:var(--mute);
+  transition:opacity .6s;white-space:nowrap}
+#hint.gone,body.intro #hint{opacity:0}
 #deny{position:fixed;top:0;right:0;bottom:0;left:0;display:grid;place-items:center;text-align:center;
-  padding:24px;font-size:18px;font-weight:600;background:var(--bg);color:var(--fg-h);z-index:9}
+  padding:24px;font-size:18px;font-weight:600;background:var(--bg);color:var(--fg-h);z-index:1}
 #deny[hidden]{display:none}
 
-.link{fill:none;stroke:var(--link);stroke-width:1.5}
+/* ветки */
+.link{fill:none;stroke:var(--link);stroke-width:1.6;stroke-linecap:round;transition:stroke .25s}
+.lk circle{fill:var(--link);transition:fill .25s}
+.lk.hl .link{stroke:var(--accent)}
+.lk.hl circle{fill:var(--accent)}
 .node{cursor:pointer}
-.node text{font-size:15px;font-weight:500;fill:var(--fg);text-anchor:end;user-select:none;transition:fill .2s}
+.node text{font-size:15px;font-weight:500;letter-spacing:.01em;fill:var(--fg);text-anchor:end;
+  user-select:none;transition:fill .2s}
 .node circle{fill:var(--cfill);stroke:var(--accent);stroke-width:2;
   transform-box:fill-box;transform-origin:center;
   transition:fill .35s,transform .25s cubic-bezier(.3,1.6,.5,1),filter .25s}
@@ -49,12 +71,19 @@ h1 svg{width:32px;height:32px}
 #pdesc{font-size:15px;line-height:1.6;margin-bottom:16px}
 #ptags{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:auto}
 #ptags span{border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:13px}
-.btn{display:block;text-align:center;padding:14px 16px;border-radius:8px;font-weight:700;
+.btn{display:block;text-align:center;padding:14px 16px;border-radius:10px;font-weight:700;
   text-decoration:none;margin-top:12px;transition:transform .15s,filter .15s}
 .btn:hover{transform:translateY(-2px);filter:brightness(1.1)}
 .btn.primary{background:var(--btn);color:#fff}
 .btn.ghost{background:var(--ghost);color:var(--ghost-t)}
 .btn[hidden]{display:none}
 #panel small{margin-top:10px;color:var(--mute);font-size:12px}
-@media (max-width:600px){h1{font-size:26px;top:60px}h1 svg{width:22px;height:22px}}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+@media (max-width:700px){
+  h1{font-size:26px;top:66px}
+  h1 svg{width:22px;height:22px}
+  #nav{left:12px;top:14px;gap:6px}
+  #theme{right:12px;top:14px}
+  #nav a,#theme{padding:6px 10px;font-size:12px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.lupa *{stroke-dashoffset:0}}
