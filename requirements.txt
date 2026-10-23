@@ -1,5 +1,6 @@
+aiogram>=3.25
 fastapi>=0.115
 uvicorn[standard]>=0.30
-aiogram>=3.25
 asyncpg>=0.29
 aiohttp>=3.9
+tzdata
