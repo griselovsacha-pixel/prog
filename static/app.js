@@ -3,6 +3,25 @@ const EASE = d3.easeCubicInOut;
 const $ = id => document.getElementById(id);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
+// ---- аналитика: пульс (время на сайте, «онлайн») и действия с инструментами
+const K = new URLSearchParams(location.search).get('k');
+const SID = String(window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)).replace(/[^\w-]/g, '');
+let curTool = '';
+function track(ev, tool) {
+  if (!K) return;
+  try {
+    fetch('/api/track', {
+      method: 'POST', keepalive: true, headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({k: K, sid: SID, ev, tool: tool || null}),
+    }).catch(() => {});
+  } catch (e) {}
+}
+function startBeat() {
+  track('hb');
+  setInterval(() => { if (!document.hidden) track('hb'); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) track('hb'); });
+}
+
 const svg = d3.select('#tree');
 const g = svg.append('g');
 const linkG = g.append('g');
@@ -132,6 +151,8 @@ function showPanel(d) {
   setBtn('btnBot', d.data.bot);
   setBtn('btnEternal', d.data.eternal);
   nodeG.selectAll('g.node').classed('sel', n => n === d);
+  curTool = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › ');
+  track('select', curTool);
   togglePanel(true);
 }
 
@@ -160,6 +181,10 @@ function init(data) {
   setTimeout(() => { open(root); update(root); }, 450);   // и он сам раскрывается
 }
 
+$('btnBot').addEventListener('click', () => track('bot', curTool));
+$('btnBot').addEventListener('auxclick', () => track('bot', curTool));
+$('btnEternal').addEventListener('click', () => track('eternal', curTool));
+$('btnEternal').addEventListener('auxclick', () => track('eternal', curTool));
 $('close').onclick = () => togglePanel(false);
 svg.on('click', () => panelOpen && togglePanel(false));
 addEventListener('keydown', e => e.key === 'Escape' && panelOpen && togglePanel(false));
@@ -177,7 +202,7 @@ $('theme').onclick = () => setTheme(document.documentElement.dataset.theme === '
 
 // ---- запуск: заставка (название по центру → наверх) → дерево
 (async () => {
-  const k = new URLSearchParams(location.search).get('k');
+  const k = K;
   if (k) {
     const q = '?k=' + encodeURIComponent(k);
     $('navAbout').href = '/about' + q;
@@ -197,5 +222,5 @@ $('theme').onclick = () => setTheme(document.documentElement.dataset.theme === '
   await wait(900);
   if (!res.data) return deny(res.err);
   try { sessionStorage.setItem('k', k); } catch (e) {}
-  try { init(res.data); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
+  try { init(res.data); startBeat(); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
 })();
