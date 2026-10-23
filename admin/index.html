@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Harledy · Admin</title>
+<style>
+:root{--bg:#171717;--card:#212121;--line:#323232;--fg:#c9c9c9;--hi:#fff;--mute:#8a8a8a;--accent:#4f86b3;--blue:#4a8fd6;--green:#5bbf8a;--amber:#d9a74a}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;min-height:100vh}
+button{font:inherit;cursor:pointer}
+#app{transition:filter .5s}
+body.locked #app{filter:blur(14px) saturate(.7);pointer-events:none;user-select:none}
+body.locked{overflow:hidden}
+
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:20px;padding:12px 24px;background:rgba(23,23,23,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:8px;font-weight:800;color:var(--hi);font-size:16px}
+.logo svg{width:18px;height:18px}
+.tabs{display:flex;gap:4px;flex:1}
+.tabs button{background:none;border:0;color:var(--mute);padding:7px 14px;border-radius:8px;font-weight:600}
+.tabs button:hover{color:var(--hi)}
+.tabs button.on{background:var(--card);color:var(--hi)}
+.right{display:flex;align-items:center;gap:14px;color:var(--mute)}
+.right button,.search button{background:none;border:1px solid var(--line);color:var(--fg);padding:6px 12px;border-radius:8px}
+.right button:hover,.search button:hover{border-color:var(--fg);color:var(--hi)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 0 0 rgba(91,191,138,.6);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 8px rgba(91,191,138,0)}100%{box-shadow:0 0 0 0 rgba(91,191,138,0)}}
+
+main{max-width:1200px;margin:0 auto;padding:24px}
+h2{font-size:13px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.08em;margin:26px 0 12px}
+h2:first-child{margin-top:0}
+h3{font-size:15px;color:var(--hi);margin-bottom:12px}
+h4{font-size:13px;color:var(--mute);margin:18px 0 8px;font-weight:700}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.kpi,.card{background:var(--card);border:1px solid var(--line);border-radius:14px}
+.kpi{padding:16px 18px}
+.kpi .k{font-size:12px;color:var(--mute)}
+.kpi .v{font-size:30px;font-weight:800;color:var(--hi);line-height:1.2;margin-top:2px}
+.kpi .s{font-size:12px;color:var(--mute);margin-top:2px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin-top:12px}
+.card{padding:18px 20px}
+.ch{position:relative}
+.ch svg{width:100%;height:auto;display:block}
+.grid{stroke:var(--line);stroke-dasharray:3 4}
+.ax{fill:var(--mute);font-size:11px}
+.vline{stroke:var(--mute);stroke-dasharray:3 3}
+.tip{position:absolute;top:0;transform:translateX(-50%);pointer-events:none;background:#111;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;white-space:nowrap;display:flex;flex-direction:column;transition:opacity .15s}
+.tip b{color:var(--hi)}
+
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 14px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}
+.row .n{color:var(--hi);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .m{color:var(--mute);font-size:12px;text-align:right}
+.row .bar{grid-column:1/-1;height:5px;border-radius:3px;background:#2c2c2c;overflow:hidden}
+.row .bar i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .6s}
+.empty{color:var(--mute);padding:14px 0}
+
+.search{display:flex;gap:8px;margin-bottom:14px}
+.search input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--hi);padding:11px 14px;border-radius:10px;font:inherit}
+.search input:focus,.gate input:focus{outline:none;border-color:var(--accent)}
+.search button{background:var(--blue);border-color:var(--blue);color:#fff;padding:0 20px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--mute);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+tr.link{cursor:pointer}
+tr.link:hover td{background:#262626}
+a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
+.uhead h3{font-size:22px;margin:0}
+.mute{color:var(--mute)}
+.ev{padding:5px 0;border-bottom:1px solid #2a2a2a}
+.ev b{color:var(--hi);font-weight:600}
+.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);margin-left:6px;color:var(--mute)}
+
+#gate{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.4);padding:20px}
+#gate[hidden]{display:none}
+.gate{width:min(380px,100%);background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.gate h1{font-size:20px;color:var(--hi);margin-bottom:4px}
+.gate p{color:var(--mute);margin-bottom:18px}
+.gate input{width:100%;background:#181818;border:1px solid var(--line);color:var(--hi);padding:12px 14px;border-radius:10px;font:inherit;margin-bottom:10px}
+.gate .code{letter-spacing:.5em;text-align:center;font-size:22px}
+.gate button{width:100%;background:var(--blue);color:#fff;border:0;border-radius:10px;padding:12px;font-weight:700;margin-top:4px}
+.err{color:#e5736f;min-height:20px;margin-top:10px;font-size:13px}
+@media (max-width:700px){.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}main{padding:14px}}
+</style>
+</head>
+<body class="locked">
+<div id="app">
+  <header class="top">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy · Admin</div>
+    <nav class="tabs">
+      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button>
+    </nav>
+    <div class="right"><span><i class="dot"></i><b id="liveN">—</b> онлайн</span><button id="logout">Выйти</button></div>
+  </header>
+  <main>
+    <section id="tab-bot">
+      <h2>Пользователи бота</h2><div class="kpis" id="kUsers"></div>
+      <h2>Заявки в канал</h2><div class="kpis" id="kReq"></div>
+      <div class="grid2">
+        <div class="card"><h3>Регистрации и заявки по дням</h3><div id="chUsers" class="ch"></div></div>
+        <div class="card"><h3>Воронка</h3><div id="funnel"></div></div>
+      </div>
+    </section>
+    <section id="tab-site" hidden>
+      <h2>Посетители сайта</h2><div class="kpis" id="kSite"></div>
+      <div class="grid2">
+        <div class="card"><h3>Уникальные посетители по дням</h3><div id="chVisits" class="ch"></div></div>
+        <div class="card"><h3>Активность по часам (30 дней)</h3><div id="chHours" class="ch"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h3>Что выбирают</h3><div id="tools"></div></div>
+        <div class="card"><h3>Устройства</h3><div id="devices"></div></div>
+      </div>
+    </section>
+    <section id="tab-users" hidden>
+      <div class="search"><input id="q" placeholder="Юзернейм, ID, имя или IP" autocomplete="off"><button id="go">Найти</button></div>
+      <div id="results"></div><div id="detail"></div>
+    </section>
+  </main>
+</div>
+
+<div id="gate">
+  <form class="gate" id="f1" autocomplete="on">
+    <h1>Вход в админку</h1><p>Введите логин и пароль.</p>
+    <input id="login" placeholder="Логин" autocomplete="username">
+    <input id="pass" type="password" placeholder="Пароль" autocomplete="current-password">
+    <button type="submit">Продолжить</button><div class="err" id="e1"></div>
+  </form>
+  <form class="gate" id="f2" hidden>
+    <h1>Двухфакторная защита</h1><p>Код из приложения-аутентификатора.</p>
+    <input id="code" class="code" inputmode="numeric" maxlength="7" placeholder="000000" autocomplete="one-time-code">
+    <button type="submit">Войти</button><div class="err" id="e2"></div>
+  </form>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let TZ = 'Europe/Kyiv', timers = [];
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = n => (n == null ? '—' : Number(n).toLocaleString('ru-RU'));
+const dur = s => { s = Math.round(+s || 0); if (s < 60) return s + ' с'; const m = Math.floor(s / 60);
+  return m < 60 ? m + ' мин ' + (s % 60) + ' с' : Math.floor(m / 60) + ' ч ' + (m % 60) + ' мин'; };
+const when = iso => iso ? new Date(iso).toLocaleString('ru-RU', {timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : '—';
+const dev = ua => /mobile|android|iphone|ipad/i.test(ua || '') ? 'Телефон' : 'ПК';
+const EV = {select: 'открыл инструмент', bot: 'перешёл в бота', eternal: 'нажал «вечная ссылка»'};
+
+async function api(path, body) {
+  const opt = {credentials: 'same-origin', headers: {'Content-Type': 'application/json'}};
+  if (body !== undefined) { opt.method = 'POST'; opt.body = JSON.stringify(body); }
+  const r = await fetch('/admin/api/' + path, opt);
+  let data = {}; try { data = await r.json(); } catch (e) {}
+  if (r.status === 404 && path === 'session') location.href = '/';
+  if (r.status === 401 && path !== 'login' && path !== '2fa') lock();
+  return {ok: r.ok, status: r.status, data};
+}
+
+/* ---------- графики ---------- */
+function lineChart(el, series) {
+  const W = 720, H = 230, m = {l: 34, r: 14, t: 14, b: 26};
+  el.innerHTML = '';
+  const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+  const days = series[0].values.map(v => v.d), n = days.length;
+  const x = i => m.l + (W - m.l - m.r) * (n > 1 ? i / (n - 1) : .5);
+  const y = d3.scaleLinear().domain([0, Math.max(3, d3.max(series, s => d3.max(s.values, v => v.v)))]).nice().range([H - m.b, m.t]);
+  y.ticks(4).forEach(t => {
+    svg.append('line').attr('class', 'grid').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y(t)).attr('y2', y(t));
+    svg.append('text').attr('class', 'ax').attr('x', m.l - 8).attr('y', y(t) + 4).attr('text-anchor', 'end').text(t);
+  });
+  days.forEach((d, i) => { if (i % 5 === 0 || i === n - 1)
+    svg.append('text').attr('class', 'ax').attr('x', x(i)).attr('y', H - 6).attr('text-anchor', 'middle').text(d.slice(8) + '.' + d.slice(5, 7)); });
+  series.forEach(s => {
+    const id = 'g' + Math.random().toString(36).slice(2);
+    const lg = svg.append('defs').append('linearGradient').attr('id', id).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+    lg.append('stop').attr('offset', '0%').attr('stop-color', s.color).attr('stop-opacity', .32);
+    lg.append('stop').attr('offset', '100%').attr('stop-color', s.color).attr('stop-opacity', 0);
+    const pts = s.values.map((v, i) => [x(i), y(v.v)]);
+    svg.append('path').attr('d', d3.area().x(p => p[0]).y0(H - m.b).y1(p => p[1]).curve(d3.curveMonotoneX)(pts)).attr('fill', `url(#${id})`);
+    svg.append('path').attr('d', d3.line().curve(d3.curveMonotoneX)(pts)).attr('fill', 'none')
+      .attr('stroke', s.color).attr('stroke-width', 2.2).attr('stroke-linecap', 'round');
+  });
+  const vline = svg.append('line').attr('class', 'vline').attr('y1', m.t).attr('y2', H - m.b).style('opacity', 0);
+  const tip = d3.select(el).append('div').attr('class', 'tip').style('opacity', 0);
+  svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+    .on('mousemove', e => {
+      const mx = d3.pointer(e)[0];
+      const i = Math.max(0, Math.min(n - 1, Math.round((mx - m.l) / (W - m.l - m.r) * (n - 1))));
+      vline.attr('x1', x(i)).attr('x2', x(i)).style('opacity', 1);
+      tip.style('opacity', 1).style('left', (x(i) / W * 100) + '%')
+        .html(`<b>${days[i].slice(8)}.${days[i].slice(5, 7)}</b>` + series.map(s => `<span style="color:${s.color}">● ${esc(s.name)}: ${s.values[i].v}</span>`).join(''));
+    })
+    .on('mouseleave', () => { vline.style('opacity', 0); tip.style('opacity', 0); });
+}
+
+function barChart(el, vals) {
+  const W = 720, H = 210, m = {l: 30, r: 8, t: 10, b: 24};
+  el.innerHTML = '';
+  const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+  const y = d3.scaleLinear().domain([0, Math.max(3, d3.max(vals))]).nice().range([H - m.b, m.t]);
+  const bw = (W - m.l - m.r) / 24;
+  y.ticks(4).forEach(t => {
+    svg.append('line').attr('class', 'grid').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y(t)).attr('y2', y(t));
+    svg.append('text').attr('class', 'ax').attr('x', m.l - 6).attr('y', y(t) + 4).attr('text-anchor', 'end').text(t);
+  });
+  vals.forEach((v, i) => {
+    svg.append('rect').attr('x', m.l + i * bw + 3).attr('width', bw - 6).attr('y', y(v)).attr('height', H - m.b - y(v)).attr('rx', 3)
+      .attr('fill', '#4f86b3').append('title').text(`${i}:00 — ${v}`);
+    if (i % 3 === 0) svg.append('text').attr('class', 'ax').attr('x', m.l + i * bw + bw / 2).attr('y', H - 6).attr('text-anchor', 'middle').text(i);
+  });
+}
+
+function bars(el, items, empty) {
+  const max = Math.max(1, ...items.map(i => i.v));
+  el.innerHTML = items.length ? items.map(i => `<div class="row"><div class="n">${esc(i.name)}</div><div class="m">${i.meta || ''}</div>
+    <div class="bar"><i style="width:${Math.max(2, i.v / max * 100)}%"></i></div></div>`).join('') : `<div class="empty">${empty || 'Пока нет данных'}</div>`;
+}
+
+const kpis = (el, arr) => { el.innerHTML = arr.map(a => `<div class="kpi"><div class="k">${a[0]}</div><div class="v"${a[3] ? ` id="${a[3]}"` : ''}>${a[1]}</div><div class="s">${a[2] || '&nbsp;'}</div></div>`).join(''); };
+
+/* ---------- отрисовка ---------- */
+const ph = k => Array.from({length: 30}, (_, i) => ({d: new Date(Date.now() - (29 - i) * 864e5).toISOString().slice(0, 10), v: Math.round(5 + 4 * Math.sin(i / 3 + k))}));
+function skeleton() {
+  kpis($('#kUsers'), [['Всего', '—'], ['Сегодня', '—'], ['За 7 дней', '—'], ['За 30 дней', '—']]);
+  kpis($('#kReq'), [['Всего', '—'], ['Сегодня', '—'], ['За 7 дней', '—'], ['За 30 дней', '—']]);
+  kpis($('#kSite'), [['Онлайн сейчас', '—'], ['Зашли сегодня', '—'], ['За 7 дней', '—'], ['За 30 дней', '—'], ['Среднее время', '—'], ['Переходов в ботов', '—']]);
+  lineChart($('#chUsers'), [{name: '', color: '#4f86b3', values: ph(0)}]);
+  lineChart($('#chVisits'), [{name: '', color: '#4f86b3', values: ph(1)}]);
+  barChart($('#chHours'), Array.from({length: 24}, (_, i) => 3 + Math.round(3 * Math.sin(i / 3))));
+}
+
+function render(s) {
+  TZ = s.tz || TZ;
+  const u = s.users, r = s.requests, v = s.site, se = s.sessions, c = s.clicks;
+  kpis($('#kUsers'), [['Всего', num(u.total)], ['Сегодня', num(u.today)], ['За 7 дней', num(u.week)], ['За 30 дней', num(u.month)]]);
+  kpis($('#kReq'), [['Всего заявок', num(r.total)], ['Сегодня', num(r.today)], ['За 7 дней', num(r.week)], ['За 30 дней', num(r.month)]]);
+  lineChart($('#chUsers'), [
+    {name: 'Регистрации', color: '#4f86b3', values: s.users_daily},
+    {name: 'Заявки', color: '#5bbf8a', values: s.requests_daily}]);
+  const f = s.funnel, top = Math.max(1, f.users);
+  bars($('#funnel'), [['Запустили бота', f.users], ['Подали заявку в канал', f.req], ['Зашли на сайт', f.site],
+    ['Открыли инструмент', f.tool], ['Перешли в бота', f.bot]].map(a => ({name: a[0], v: a[1], meta: `<b style="color:#fff">${num(a[1])}</b> · ${Math.round(a[1] / top * 100)}%`})));
+
+  kpis($('#kSite'), [
+    ['Онлайн сейчас', num(s.online), 'обновляется каждые 10 с', 'kOnline'],
+    ['Зашли сегодня', num(v.uniq_today), 'визитов: ' + num(v.visits_today)],
+    ['За 7 дней', num(v.uniq_week), 'уникальных'],
+    ['За 30 дней', num(v.uniq_month), 'уникальных'],
+    ['Всего посетителей', num(v.uniq), 'визитов: ' + num(v.visits)],
+    ['Среднее время', dur(se.avg_today), 'сегодня · за всё время: ' + dur(se.avg_all)],
+    ['Перешли в ботов', num(c.bot), 'вечных ссылок: ' + num(c.eternal)]]);
+  $('#liveN').textContent = num(s.online);
+  lineChart($('#chVisits'), [{name: 'Посетители', color: '#4f86b3', values: s.visitors_daily}]);
+  barChart($('#chHours'), s.hours);
+  bars($('#tools'), s.tools.map(t => { const p = t.tool.split(' › ');
+    return {name: p[p.length - 1], v: t.sel, meta: `${p.slice(0, -1).join(' › ')}<br>выбрали <b style="color:#fff">${t.sel}</b> · людей ${t.people} · в бота ${t.bot} · вечная ${t.eternal}`}; }),
+    'Пока никто не открывал инструменты');
+  const dt = s.devices.reduce((a, d) => a + d.c, 0) || 1;
+  bars($('#devices'), s.devices.map(d => ({name: d.dev, v: d.c, meta: `${d.c} · ${Math.round(d.c / dt * 100)}%`})), 'Пока нет сессий');
+}
+
+async function loadStats() { const r = await api('stats'); if (r.ok) render(r.data); }
+async function pollOnline() { const r = await api('online'); if (r.ok) { $('#liveN').textContent = num(r.data.online); const k = $('#kOnline'); if (k) k.textContent = num(r.data.online); } }
+
+/* ---------- пользователи ---------- */
+async function search() {
+  const q = $('#q').value.trim(); if (!q) return;
+  const r = await api('search?q=' + encodeURIComponent(q)); const items = (r.data.items) || [];
+  $('#detail').innerHTML = '';
+  if (items.length === 1) return openUser(items[0].tg_id);
+  $('#results').innerHTML = items.length ? `<div class="card"><table><tr><th>Пользователь</th><th>ID</th><th>Регистрация</th><th>Визитов</th><th>Последний визит</th></tr>` +
+    items.map(i => `<tr class="link" data-id="${i.tg_id}"><td>${esc(i.full_name || '—')} ${i.username ? '<span class="mute">@' + esc(i.username) + '</span>' : ''}</td><td>${i.tg_id}</td><td>${when(i.created_at)}</td><td>${i.visits}</td><td>${when(i.last_visit)}</td></tr>`).join('') + '</table></div>'
+    : '<div class="empty">Ничего не найдено</div>';
+  document.querySelectorAll('#results tr.link').forEach(t => t.onclick = () => openUser(t.dataset.id));
+}
+
+async function openUser(id) {
+  $('#results').innerHTML = '';
+  const r = await api('user/' + id); if (!r.ok) { $('#detail').innerHTML = '<div class="empty">Пользователь не найден</div>'; return; }
+  const d = r.data, u = d.user, ss = d.sessions_stat, v = d.visits;
+  $('#detail').innerHTML = `<div class="card">
+    <div class="uhead"><h3>${esc(u.full_name || '—')}</h3><div class="mute">${u.username ? '@' + esc(u.username) + ' · ' : ''}ID ${u.tg_id}</div></div>
+    <div class="kpis" style="margin-top:14px">
+      <div class="kpi"><div class="k">Регистрация в боте</div><div class="s" style="color:#fff;font-size:14px">${when(u.created_at)}</div></div>
+      <div class="kpi"><div class="k">Заявка в канал</div><div class="s" style="color:#fff;font-size:14px">${d.join_request_at ? when(d.join_request_at) : 'не подавал'}</div></div>
+      <div class="kpi"><div class="k">Визитов на сайт</div><div class="v" style="font-size:24px">${v.n}</div><div class="s">последний: ${when(v.last)}</div></div>
+      <div class="kpi"><div class="k">Время на сайте</div><div class="v" style="font-size:24px">${dur(ss.total)}</div><div class="s">сессий: ${ss.n} · в среднем ${dur(ss.avg)}</div></div>
+    </div>
+    <h4>Что выбирал</h4>${d.tools.length ? `<table><tr><th>Инструмент</th><th>Открыл</th><th>В бота</th><th>Вечная</th><th>Последний раз</th></tr>` +
+      d.tools.map(t => `<tr><td>${esc(t.tool)}</td><td>${t.sel}</td><td>${t.bot}</td><td>${t.eternal}</td><td>${when(t.last)}</td></tr>`).join('') + '</table>' : '<div class="empty">Инструменты не выбирал</div>'}
+    <div class="grid2" style="margin-top:0">
+      <div><h4>IP-адреса <span class="mute">(клик — найти всех с этим IP)</span></h4>${d.ips.length ? '<table><tr><th>IP</th><th>Заходов</th><th>Последний</th></tr>' +
+        d.ips.map(i => `<tr><td><a class="ip" data-ip="${esc(i.ip)}">${esc(i.ip)}</a></td><td>${i.n}</td><td>${when(i.last)}</td></tr>`).join('') + '</table>' : '<div class="empty">Нет данных</div>'}</div>
+      <div><h4>Сессии</h4>${d.sessions.length ? '<table><tr><th>Начало</th><th>Длилась</th><th>Устройство</th></tr>' +
+        d.sessions.map(s => `<tr><td>${when(s.started_at)}</td><td>${dur(s.secs)}</td><td>${dev(s.user_agent)}</td></tr>`).join('') + '</table>' : '<div class="empty">Нет данных</div>'}</div>
+    </div>
+    <h4>Последние действия</h4>${d.events.length ? d.events.map(e => `<div class="ev"><span class="mute">${when(e.created_at)}</span> — ${EV[e.ev] || esc(e.ev)}: <b>${esc(e.tool || '')}</b></div>`).join('') : '<div class="empty">Действий нет</div>'}
+  </div>`;
+  document.querySelectorAll('a.ip').forEach(a => a.onclick = () => { $('#q').value = a.dataset.ip; search(); });
+}
+
+/* ---------- вход ---------- */
+function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
+function unlock() {
+  document.body.classList.remove('locked'); $('#gate').hidden = true;
+  loadStats(); timers.push(setInterval(pollOnline, 10000), setInterval(loadStats, 60000));
+}
+$('#f1').onsubmit = async e => {
+  e.preventDefault(); $('#e1').textContent = '';
+  const r = await api('login', {login: $('#login').value, password: $('#pass').value});
+  if (r.ok) { $('#f1').hidden = true; $('#f2').hidden = false; $('#code').focus(); $('#pass').value = ''; }
+  else $('#e1').textContent = r.data.error || 'Ошибка входа';
+};
+$('#f2').onsubmit = async e => {
+  e.preventDefault(); $('#e2').textContent = '';
+  const r = await api('2fa', {code: $('#code').value});
+  if (r.ok) { $('#code').value = ''; unlock(); } else { $('#e2').textContent = r.data.error || 'Ошибка'; $('#code').value = ''; }
+};
+$('#logout').onclick = async () => { await api('logout', {}); lock(); };
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['bot', 'site', 'users'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+});
+$('#go').onclick = search; $('#q').onkeydown = e => e.key === 'Enter' && search();
+
+(async () => {
+  skeleton();
+  const s = await api('session');
+  if (s.data.tz) TZ = s.data.tz;
+  if (s.data.enabled === false) { $('#e1').textContent = 'Админка не настроена: задайте ADMIN_LOGIN, ADMIN_PASSWORD и ADMIN_TOTP_SECRET.'; }
+  if (s.data.state === 'full') unlock();
+  else if (s.data.state === 'pre') { $('#f1').hidden = true; $('#f2').hidden = false; }
+})();
+</script>
+</body>
+</html>
