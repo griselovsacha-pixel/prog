@@ -242,12 +242,14 @@ function showStats(tools, cats) {
 const INTRO_SCALE = 1.6;
 function playIntro() {
   const text = $('brandText'), splash = $('splash');
-  if (!text.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) { splash.remove(); return Promise.resolve(); }
+  let seen = false;                              // полная заставка — один раз за вкладку, при обновлении страницы короткая
+  try { seen = !!sessionStorage.getItem('intro'); sessionStorage.setItem('intro', '1'); } catch (e) {}
+  if (seen || !text.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) { splash.remove(); return Promise.resolve(); }
   const lens = $('lens'), pop = $('pop'), inner = $('lensIn');
   const r = text.getBoundingClientRect(), cs = getComputedStyle(text);
   const L = Math.round(Math.min(160, Math.max(100, r.height * 2.2))), Rr = L / 2, MAG = 1.55;
   const cy = r.top + r.height / 2, x0 = r.left - Rr * 0.7, x1 = r.right + Rr * 0.7;
-  const D = 900, DELAY = 150, ease = 'cubic-bezier(.65,.05,.35,1)';
+  const D = 1700, DELAY = 400, ease = 'cubic-bezier(.65,.05,.35,1)';
   const opt = { duration: D, delay: DELAY, easing: ease, fill: 'both' };
 
   lens.style.width = lens.style.height = L + 'px';
@@ -269,7 +271,11 @@ function playIntro() {
   pop.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.3)', opacity: 0 }],
     { duration: 240, delay: DELAY + D - 40, easing: 'ease-in', fill: 'both' });
   setTimeout(() => splash.remove(), DELAY + D + 900);
-  return sweep.finished.catch(() => {}).then(() => wait(60));
+  return sweep.finished.catch(() => {}).then(() => {
+    document.body.classList.add('reveal');          // значок рисуется, под названием появляется подпись
+    document.querySelector('.lupa').classList.add('draw');
+    return wait(1100);                              // пауза, чтобы заставку успели рассмотреть
+  });
 }
 
 // ---- запуск: заставка (название по центру → наверх) → дерево
