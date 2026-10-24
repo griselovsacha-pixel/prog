@@ -4,15 +4,25 @@ const $ = id => document.getElementById(id);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 // ---- аналитика: пульс (время на сайте, «онлайн») и действия с инструментами
-const K = new URLSearchParams(location.search).get('k');
+// Токен приходит в ссылке бота (?k=…). Запоминаем его на вкладке и сразу убираем из адресной строки,
+// чтобы он не попал в историю, скриншоты и «скопировать ссылку».
+let K = new URLSearchParams(location.search).get('k');
+try { if (K) sessionStorage.setItem('k', K); else K = sessionStorage.getItem('k'); } catch (e) {}
+if (new URLSearchParams(location.search).has('k')) {
+  try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+}
+// ссылки наружу открываем только по http(s): «javascript:» и подобное отбрасываем
+const safeUrl = u => {
+  try { const x = new URL(u, location.href); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (e) { return ''; }
+};
 const SID = String(window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)).replace(/[^\w-]/g, '');
 let curTool = '';
 function track(ev, tool) {
   if (!K) return;
   try {
     fetch('/api/track', {
-      method: 'POST', keepalive: true, headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({k: K, sid: SID, ev, tool: tool || null}),
+      method: 'POST', keepalive: true, headers: {'Content-Type': 'application/json', 'X-Access-Key': K},
+      body: JSON.stringify({sid: SID, ev, tool: tool || null}),
     }).catch(() => {});
   } catch (e) {}
 }
@@ -61,7 +71,7 @@ function highlight(d) {
 
 function fit(nodes) {
   const W = svg.node().clientWidth - (panelOpen && innerWidth > 760 ? PANEL_W : 0);
-  const H = svg.node().clientHeight, TOP = 120, BOT = 50, PADX = 50;
+  const H = svg.node().clientHeight, TOP = 128, BOT = 50, PADX = 50;
   const minX = d3.min(nodes, d => d.px - GAPL - d.w - 12);
   const maxX = d3.max(nodes, d => d.px + R + 12);
   const minY = d3.min(nodes, d => d.py) - 24, maxY = d3.max(nodes, d => d.py) + 24;
@@ -97,7 +107,8 @@ function update(src) {
     .on('mouseenter', (e, d) => highlight(d))
     .on('mouseleave', () => highlight(null))
     .on('click', (e, d) => { e.stopPropagation(); onNode(d); });
-  enter.append('circle').attr('r', R);
+  enter.append('circle').attr('class', 'ring').attr('r', R + 7);
+  enter.append('circle').attr('class', 'dot').attr('r', R);
   enter.append('text').attr('x', -GAPL).attr('dy', '0.35em').text(d => d.data.name);
 
   const all = enter.merge(node);
@@ -145,15 +156,18 @@ function showPanel(d) {
   $('crumb').textContent = d.ancestors().reverse().slice(1, -1).map(n => n.data.name).join(' › ');
   $('ptitle').textContent = d.data.name;
   $('pdesc').textContent = d.data.desc || '';
+  $('pbody').scrollTop = 0;
   $('ptags').replaceChildren(...(d.data.tags || []).map(t =>
     Object.assign(document.createElement('span'), { textContent: t })));
-  const setBtn = (id, url) => { const a = $(id); a.hidden = !url; if (url) a.href = url; };
+  const setBtn = (id, url) => { const a = $(id); const u = safeUrl(url); a.hidden = !u; if (u) a.href = u; };
   setBtn('btnBot', d.data.bot);
   setBtn('btnEternal', d.data.eternal);
   nodeG.selectAll('g.node').classed('sel', n => n === d);
   curTool = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › ');
   track('select', curTool);
   togglePanel(true);
+  requestAnimationFrame(updateFade);
+  setTimeout(updateFade, 450);
 }
 
 function togglePanel(on) {
@@ -174,9 +188,11 @@ function deny(msg) {
 function init(data) {
   root = d3.hierarchy(data);
   root.each(d => { d.id = ++uid; d.w = measure(d.data.name); });
+  const nTools = root.leaves().length, nCats = root.descendants().length - nTools - 1;
   closeDeep(root);
   root.ox = root.oy = 0;
   update(root);                                  // сначала сразу виден только корень
+  showStats(nTools, nCats);
   $('hint').textContent = 'Нажимайте на кружки, чтобы раскрывать ветки';
   setTimeout(() => { open(root); update(root); }, 450);   // и он сам раскрывается
 }
@@ -200,27 +216,79 @@ try { saved = localStorage.getItem('theme') || 'dark'; } catch (e) {}
 setTheme(saved);
 $('theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
 
+
+// ---- подсказка «можно листать» у длинного описания
+function updateFade() {
+  const el = $('pbody');
+  el.classList.toggle('fade', el.scrollHeight - el.scrollTop - el.clientHeight > 8);
+}
+$('pbody').addEventListener('scroll', updateFade, { passive: true });
+
+// ---- счётчик внизу слева
+const plural = (n, f) => { const a = n % 100, b = n % 10; return a > 10 && a < 20 ? f[2] : b === 1 ? f[0] : b > 1 && b < 5 ? f[1] : f[2]; };
+function showStats(tools, cats) {
+  const el = $('stats'); el.hidden = false;
+  const lt = plural(tools, ['инструмент', 'инструмента', 'инструментов']), lc = plural(cats, ['категория', 'категории', 'категорий']);
+  const t0 = performance.now();
+  const tick = now => {
+    const p = Math.min(1, (now - t0) / 900), e = 1 - Math.pow(1 - p, 3);
+    el.innerHTML = `<b>${Math.round(tools * e)}</b> ${lt} · <b>${Math.round(cats * e)}</b> ${lc}`;
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// ---- заставка: лупа проезжает по названию и «проявляет» его, затем уезжает наверх
+const INTRO_SCALE = 1.6;
+function playIntro() {
+  const text = $('brandText'), splash = $('splash');
+  if (!text.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) { splash.remove(); return Promise.resolve(); }
+  const lens = $('lens'), pop = $('pop'), inner = $('lensIn');
+  const r = text.getBoundingClientRect(), cs = getComputedStyle(text);
+  const L = Math.round(Math.min(160, Math.max(100, r.height * 2.2))), Rr = L / 2, MAG = 1.55;
+  const cy = r.top + r.height / 2, x0 = r.left - Rr * 0.7, x1 = r.right + Rr * 0.7;
+  const D = 900, DELAY = 150, ease = 'cubic-bezier(.65,.05,.35,1)';
+  const opt = { duration: D, delay: DELAY, easing: ease, fill: 'both' };
+
+  lens.style.width = lens.style.height = L + 'px';
+  inner.textContent = text.textContent;
+  Object.assign(inner.style, {
+    font: `800 ${parseFloat(cs.fontSize) * INTRO_SCALE * MAG}px ${cs.fontFamily}`,
+    lineHeight: r.height * MAG + 'px', top: (Rr - r.height * MAG / 2) + 'px',
+  });
+  const at = x => `translate(${x - Rr}px, ${cy - Rr}px)`;                    // лупа
+  const ix = x => `translateX(${Rr - (x - r.left) * MAG}px)`;                // увеличенный текст внутри неё
+  const f = x => (1 - (x - r.left) / r.width) * 100 + '%';                   // граница «проявления»
+  lens.style.transform = at(x0);
+  inner.style.transform = ix(x0);
+  const sweep = lens.animate([{ transform: at(x0) }, { transform: at(x1) }], opt);
+  inner.animate([{ transform: ix(x0) }, { transform: ix(x1) }], opt);
+  text.animate([{ clipPath: `inset(-40% ${f(x0)} -40% 0)` }, { clipPath: `inset(-40% ${f(x1)} -40% 0)` }], opt);
+  pop.animate([{ transform: 'scale(.3)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+    { duration: 260, delay: 80, easing: 'cubic-bezier(.3,1.5,.5,1)', fill: 'both' });
+  pop.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.3)', opacity: 0 }],
+    { duration: 240, delay: DELAY + D - 40, easing: 'ease-in', fill: 'both' });
+  setTimeout(() => splash.remove(), DELAY + D + 900);
+  return sweep.finished.catch(() => {}).then(() => wait(60));
+}
+
 // ---- запуск: заставка (название по центру → наверх) → дерево
 (async () => {
   const k = K;
-  if (k) {
-    const q = '?k=' + encodeURIComponent(k);
-    $('navAbout').href = '/about' + q;
-    $('navCollab').href = '/collab' + q;
-  }
   const load = (async () => {
     if (!k) return {};
     try {
-      const r = await fetch('/api/tools?k=' + encodeURIComponent(k));
+      const r = await fetch('/api/tools', { headers: { 'X-Access-Key': k } });
+      if (r.status === 429) return { err: 'Слишком много запросов. Подождите минуту и обновите страницу.' };
       return r.ok ? { data: await r.json() } : {};
     } catch (e) { return { err: 'Ошибка загрузки: ' + (e && e.message ? e.message : e) }; }
   })();
 
-  await wait(1400);                              // название по центру
-  document.body.classList.remove('intro');       // уезжает наверх
+  await playIntro();                             // лупа проявляет название
+  document.body.classList.remove('intro');       // название уезжает наверх
+  document.querySelector('.lupa').classList.add('draw');
   const res = await load;
-  await wait(900);
+  await wait(450);
   if (!res.data) return deny(res.err);
-  try { sessionStorage.setItem('k', k); } catch (e) {}
   try { init(res.data); startBeat(); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
 })();
