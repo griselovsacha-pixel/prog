@@ -18,7 +18,7 @@ body{background:var(--bg);color:var(--fg);overflow:hidden;
 
 /* рамка-видоискатель по углам экрана */
 #hud i{position:fixed;z-index:1;width:16px;height:16px;border:0 solid var(--bracket);pointer-events:none;opacity:.8;
-  animation:hudIn .9s cubic-bezier(.2,.8,.2,1) both}
+  animation:hudIn 1.5s cubic-bezier(.2,.8,.2,1) both}
 #hud .tl{top:7px;left:7px;border-top-width:2px;border-left-width:2px;--dx:40px;--dy:40px}
 #hud .tr{top:7px;right:7px;border-top-width:2px;border-right-width:2px;--dx:-40px;--dy:40px}
 #hud .bl{bottom:7px;left:7px;border-bottom-width:2px;border-left-width:2px;--dx:40px;--dy:-40px}
@@ -31,8 +31,8 @@ body{background:var(--bg);color:var(--fg);overflow:hidden;
 .rg{position:absolute;left:50%;top:50%;width:1000px;height:1000px;margin:-500px 0 0 -500px;border-radius:50%;
   opacity:0;pointer-events:none;will-change:transform,opacity;
   background:radial-gradient(circle,transparent 493px,var(--accent) 497px,transparent 500px);
-  animation:ring 1.5s cubic-bezier(.2,.6,.3,1) forwards}
-.rg.g2{animation-delay:.22s}
+  animation:ring 2.6s cubic-bezier(.2,.6,.3,1) forwards}
+.rg.g2{animation-delay:.5s}.rg.g3{animation-delay:1s}
 @keyframes ring{0%{transform:scale(.04);opacity:.9}100%{transform:scale(1);opacity:0}}
 #lens{position:absolute;top:0;left:0;will-change:transform}
 #pop{position:relative;width:100%;height:100%}
@@ -53,6 +53,8 @@ body.intro #brand{top:50%;transform:translate(-50%,-50%) scale(var(--intro-scale
 h1{display:flex;align-items:center;justify-content:center;gap:12px;font-size:40px;font-weight:800;color:var(--fg-h);line-height:1.15}
 h1 svg{width:32px;height:32px}
 body.intro .lupa{opacity:0}
+body.intro.reveal .lupa{opacity:1}
+body.intro.reveal #tag{opacity:1;transition:opacity .7s}
 .lupa *{stroke-dasharray:60;stroke-dashoffset:60}
 .lupa.draw *{animation:draw .7s ease forwards}
 @keyframes draw{to{stroke-dashoffset:0}}
