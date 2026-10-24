@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import html
+import ipaddress
 import json
 import logging
 import os
@@ -10,14 +11,16 @@ import re
 import secrets
 import struct
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import aiohttp
 import asyncpg
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
@@ -26,31 +29,55 @@ from aiogram.types import (
     CallbackQuery, ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
 from fastapi import FastAPI, HTTPException, Request
+from fastapi import Path as ApiPath
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import security as sec
+
 logging.basicConfig(level=logging.INFO)
+sec.install_log_masking()   # токены доступа (?k=…) и токен бота не попадают в логи
 log = logging.getLogger("harledy")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 DATABASE_URL = os.environ["DATABASE_URL"]  # Supabase pooler URL (порт 6543)
 SITE_URL = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
+DB_SSL = os.environ.get("DB_SSL", "require").strip().lower()
 CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/+X8s2DkoSD7M3MTc6")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or -1004319976611)  # переменная окружения, если задана, главнее
 BASE = Path(__file__).parent
+# Telegram ID владельцев: только им бот отвечает ID канала на пересланный пост
+ADMIN_TG_IDS = {int(x) for x in re.findall(r"\d+", os.environ.get("ADMIN_TG_IDS", ""))}
+
+# где лежит список инструментов: переменная TOOLS_FILE, секретный файл Render, либо data/tools.json
+TOOLS_PATHS = [p for p in (os.environ.get("TOOLS_FILE"), "/etc/secrets/tools.json", str(BASE / "data" / "tools.json")) if p]
+
+
+def parse_nets(raw: str) -> list:
+    out = []
+    for part in re.split(r"[,\s]+", raw.strip()):
+        if part:
+            try:
+                out.append(ipaddress.ip_network(part, strict=False))
+            except ValueError:
+                logging.getLogger("harledy").warning("ADMIN_IP: %r не похоже на IP или подсеть, пропущено", part)
+    return out
+
 
 # --- админка (всё секретное только из переменных окружения) ---
-ADMIN_IP = os.environ.get("ADMIN_IP", "91.224.45.1")
+# IP-адрес(а) админа: один IP, подсеть или список через запятую. Значения по умолчанию НЕТ:
+# пока ADMIN_IP не задан, админка закрыта для всех.
+ADMIN_NETS = parse_nets(os.environ.get("ADMIN_IP", ""))
+sec.EXEMPT_NETS = ADMIN_NETS
 ADMIN_LOGIN = os.environ.get("ADMIN_LOGIN", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_TOTP = os.environ.get("ADMIN_TOTP_SECRET", "").replace(" ", "").upper()
 ADMIN_TZ = os.environ.get("ADMIN_TZ", "Europe/Kyiv")
-SESSION_SECRET = (
-    os.environ.get("ADMIN_SESSION_SECRET")
-    or hashlib.sha256(f"{ADMIN_PASSWORD}|{ADMIN_TOTP}|{BOT_TOKEN}".encode()).hexdigest()
-).encode()
+# Ключ подписи cookie. Не выводится из пароля: либо задан явно (≥32 символов), либо случайный на запуск.
+_secret_env = os.environ.get("ADMIN_SESSION_SECRET", "")
+SESSION_SECRET = (_secret_env if len(_secret_env) >= 32 else secrets.token_urlsafe(48)).encode()
 
 # custom emoji
 EMOJI_MAIN = "5217848986433502482"
@@ -228,8 +255,32 @@ async def on_check(cb: CallbackQuery):
 
 @router.message(F.forward_origin.chat.type == "channel")
 async def on_forwarded(m: Message):
-    """Перешли боту пост из канала — он покажет ID канала для CHANNEL_ID."""
-    await m.answer(f"ID канала: <code>{m.forward_origin.chat.id}</code>")
+    """Владелец пересылает боту пост из канала — бот покажет ID канала для CHANNEL_ID.
+    Остальным не отвечает; пока ADMIN_TG_IDS не задан, функция выключена."""
+    if m.from_user and m.from_user.id in ADMIN_TG_IDS:
+        await m.answer(f"ID канала: <code>{m.forward_origin.chat.id}</code>")
+
+
+class BotThrottle(BaseMiddleware):
+    """Не даёт одному пользователю заваливать бота (и базу) запросами: не чаще одного события в 0.7 с.
+    Заявки в канал и служебные события не отбрасываем никогда: потерянная заявка = человек навсегда у закрытых ворот."""
+
+    def __init__(self):
+        self.last = sec.Bounded(20000)
+
+    async def __call__(self, handler, event, data):
+        user = data.get("event_from_user")
+        if user and not (event.chat_join_request or event.my_chat_member or event.chat_member):
+            now = time.monotonic()
+            if now - self.last.get(user.id, -1e9) < 0.7:
+                if event.callback_query:                 # кнопка не должна «висеть» с крутилкой
+                    try:
+                        await event.callback_query.answer()
+                    except TelegramAPIError:
+                        pass
+                return None
+            self.last.put(user.id, now)
+        return await handler(event, data)
 
 
 @router.chat_join_request()
@@ -278,18 +329,32 @@ async def self_ping():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
-    pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, statement_cache_size=0)
+    # command_timeout: зависший запрос к базе не держит соединения вечно
+    # TLS к базе включён всегда (отключить можно только явно: DB_SSL=disable); sslmode из самой ссылки главнее
+    ssl_kw = {} if ("sslmode=" in DATABASE_URL or DB_SSL == "disable") else {"ssl": "require"}
+    pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, statement_cache_size=0,
+                                     command_timeout=10, timeout=15, **ssl_kw)
     async with pool.acquire() as c:
         await c.execute(SCHEMA)
 
+    if not ADMIN_NETS:
+        log.warning("ADMIN_IP не задан — админка закрыта для всех")
+    elif not admin_enabled():
+        log.warning("Админка не настроена: нужны ADMIN_LOGIN, ADMIN_PASSWORD, ADMIN_TOTP_SECRET")
+    if len(_secret_env) < 32:
+        log.warning("ADMIN_SESSION_SECRET не задан (или короче 32 символов): сессии админа сбрасываются при перезапуске")
+    if not sec.ORIGIN_SECRET:
+        log.warning("ORIGIN_SECRET не задан: сайт доступен в обход вашего Cloudflare (см. SECURITY.md)")
+
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+    dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
-    await bot.delete_webhook(drop_pending_updates=True)
-    try:
+    try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
+        await bot.delete_webhook(drop_pending_updates=True)
         await diagnose(bot)
     except Exception as e:
-        log.warning("diagnose failed: %s", e)
+        log.warning("Telegram недоступен при старте, продолжаем без проверки: %s", e)
     tasks = [
         asyncio.create_task(dp.start_polling(bot, handle_signals=False)),
         asyncio.create_task(self_ping()),
@@ -302,27 +367,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+# Самый внешний слой: лимиты, баны, проверка Host/секрета Cloudflare, размер тела, таймаут, заголовки безопасности
+app.add_middleware(sec.Shield)
 
 
 # ====================== общее для веба ======================
 def client_ip(req: Request) -> str:
-    # заголовки Cloudflare клиент подделать не может, поэтому им доверяем в первую очередь
-    for h in ("cf-connecting-ip", "true-client-ip"):
-        v = req.headers.get(h)
-        if v:
-            return v.strip()
-    xff = req.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()
-    return req.client.host if req.client else ""
+    """IP клиента. Считается один раз в sec.Shield: подделанные CF-Connecting-IP / True-Client-IP
+    и левые записи X-Forwarded-For игнорируются (см. PROXY_HOPS и IP_HEADER в SECURITY.md)."""
+    return req.scope.get("_cip") or sec.ip_from_scope(req.scope)
 
 
 def main_url(req: Request) -> str:
-    host = req.headers.get("host", "")
+    if SITE_URL:                      # адрес сайта берём из настроек, а не из заголовка Host
+        return SITE_URL + "/"
+    host = re.sub(r"[^A-Za-z0-9.:\-]", "", req.headers.get("host", ""))
     if host.startswith(("admin.", "about.")):
         host = host.split(".", 1)[1]
-    scheme = req.headers.get("x-forwarded-proto") or req.url.scheme
-    return f"{scheme}://{host}/"
+    return f"https://{host}/"
 
 
 @app.api_route("/ping", methods=["GET", "HEAD"])
@@ -330,36 +392,104 @@ async def ping():
     return {"ok": True}
 
 
-_tok_cache: dict[str, int] = {}
+# ---- доступ по персональному токену из бота
+TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{16,64}")      # токен бота: secrets.token_urlsafe(18) = 24 символа
+_tok_cache = sec.Bounded(5000)       # токен -> (tg_id, годен до)
+_bad_tok = sec.Bounded(5000)         # неверный токен -> до какого момента не ходим в базу
+TOK_TOOLS = sec.Limiter(10, 60)      # на один токен: список инструментов
+TOK_TRACK = sec.Limiter(40, 60)      # на один токен: аналитика
+NEW_SID = sec.Limiter(12, 3600)      # на один токен: новых сессий в час
+_sid_owner = sec.Bounded(20000)      # sid -> tg_id
+_last_visit = sec.Bounded(20000)     # tg_id -> когда писали визит
+TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей действий в базу за 10 минут (сверх лимита молча отбрасываем)
+DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
+NOSTORE = {"Cache-Control": "no-store"}
 
 
-async def uid_by_token(k: str) -> int | None:
-    if k in _tok_cache:
-        return _tok_cache[k]
-    row = await pool.fetchrow("select tg_id from users where token = $1", k) if k else None
-    if not row:
+async def uid_by_token(k: str, ip: str = "") -> int | None:
+    # неправильный формат или заведомо чужой токен — в базу не ходим; повторные попытки ведут к бану
+    if not k or not TOKEN_RE.fullmatch(k):
+        sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
         return None
-    if len(_tok_cache) > 5000:
-        _tok_cache.clear()
-    _tok_cache[k] = row["tg_id"]
+    now = time.monotonic()
+    hit = _tok_cache.get(k)
+    if hit and hit[1] > now:
+        return hit[0]
+    if _bad_tok.get(k, 0) > now:
+        return None
+    if not DB_LOOKUPS.hit("db"):          # знакомые токены (кэш выше) проходят всегда, новые — в пределах бюджета
+        raise HTTPException(429, headers={"Retry-After": "20"})
+    row = await pool.fetchrow("select tg_id from users where token = $1", k)
+    if not row:
+        _bad_tok.put(k, now + 60)
+        sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
+        return None
+    _tok_cache.put(k, (row["tg_id"], now + 600))
     return row["tg_id"]
+
+
+def access_key(request: Request, fallback: str = "") -> str:
+    """Токен берём из заголовка X-Access-Key (новый клиент) или из ?k= / тела запроса (старые ссылки)."""
+    return (request.headers.get("x-access-key") or fallback or "").strip()
+
+
+# ---- список инструментов: читаем файл один раз и держим в памяти (файл сами не светим и не парсим на каждый запрос)
+_tools_cache = {"body": None, "path": None, "mtime": None, "checked": 0.0}
+
+
+def tools_json() -> bytes | None:
+    now = time.monotonic()
+    if _tools_cache["body"] is not None and now - _tools_cache["checked"] < 30:
+        return _tools_cache["body"]
+    _tools_cache["checked"] = now
+    for p in TOOLS_PATHS:
+        try:
+            mtime = os.stat(p).st_mtime_ns
+        except OSError:
+            continue
+        if _tools_cache["path"] == p and _tools_cache["mtime"] == mtime and _tools_cache["body"] is not None:
+            return _tools_cache["body"]
+        try:
+            data = json.loads(Path(p).read_text("utf-8"))
+            body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
+        except Exception as e:
+            log.error("не удалось прочитать список инструментов %s: %s", p, e)
+            continue
+        _tools_cache.update(body=body, path=p, mtime=mtime)
+        return body
+    return _tools_cache["body"]
 
 
 @app.get("/api/tools")
 async def tools(request: Request, k: str = ""):
-    uid = await uid_by_token(k)
+    ip = client_ip(request)
+    key = access_key(request, k)
+    uid = await uid_by_token(key, ip)
     if not uid:
-        return JSONResponse({"error": "forbidden"}, status_code=403)
-    await pool.execute(
-        "insert into visits(tg_id, ip, user_agent) values($1, $2, $3)",
-        uid, client_ip(request), request.headers.get("user-agent", "")[:300],
-    )
-    data = json.loads((BASE / "data" / "tools.json").read_text("utf-8"))
-    return JSONResponse(data, headers={"Cache-Control": "no-store"})
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_TOOLS.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    now = time.monotonic()
+    if now - _last_visit.get(uid, -1e9) > 60:          # визит пишем не чаще раза в минуту на человека
+        _last_visit.put(uid, now)
+        try:
+            await pool.execute(
+                "insert into visits(tg_id, ip, user_agent) values($1, $2, $3)",
+                uid, ip, request.headers.get("user-agent", "")[:300],
+            )
+        except Exception as e:                           # сбой статистики не должен ронять сайт
+            log.warning("visit insert failed: %s", e)
+    body = tools_json()
+    if body is None:
+        return JSONResponse({"error": "unavailable"}, status_code=503, headers=NOSTORE)
+    return Response(body, media_type="application/json", headers=NOSTORE)
+
+
+TOOL_RE = re.compile(r"[^\x00-\x1f\x7f<>]{1,200}")   # название инструмента: без управляющих символов и <>
 
 
 class Track(BaseModel):
-    k: str = Field(max_length=100)
+    k: str = Field(default="", max_length=100)         # токен теперь приходит в заголовке X-Access-Key
     sid: str = Field(max_length=64)
     ev: str = Field(max_length=20)
     tool: str | None = Field(default=None, max_length=200)
@@ -370,16 +500,29 @@ async def track(request: Request, b: Track):
     """hb — пульс (время на сайте и «онлайн»), select/bot/eternal — действия с инструментами."""
     if b.ev not in ("hb", "select", "bot", "eternal") or not re.fullmatch(r"[\w-]{8,64}", b.sid):
         return JSONResponse({"ok": False}, status_code=400)
-    uid = await uid_by_token(b.k)
+    if b.tool is not None and not TOOL_RE.fullmatch(b.tool):
+        return JSONResponse({"ok": False}, status_code=400)
+    ip = client_ip(request)
+    key = access_key(request, b.k)
+    uid = await uid_by_token(key, ip)
     if not uid:
         return JSONResponse({"ok": False}, status_code=403)
-    ip = client_ip(request)
+    if not TOK_TRACK.hit(key):
+        return JSONResponse({"ok": False}, status_code=429, headers={"Retry-After": "30"})
+    owner = _sid_owner.get(b.sid)
+    if owner is not None and owner != uid:                # чужую сессию подменить нельзя
+        return JSONResponse({"ok": False}, status_code=403)
+    if owner is None:
+        if not NEW_SID.hit(key):                          # и плодить сессии тоже
+            return JSONResponse({"ok": False}, status_code=429, headers={"Retry-After": "300"})
+        _sid_owner.put(b.sid, uid)
+    ua = request.headers.get("user-agent", "")[:300]
     await pool.execute(
         """insert into sessions(id, tg_id, ip, user_agent) values($1, $2, $3, $4)
-           on conflict (id) do update set last_seen = now()""",
-        b.sid, uid, ip, request.headers.get("user-agent", "")[:300],
+           on conflict (id) do update set last_seen = now() where sessions.tg_id = excluded.tg_id""",
+        b.sid, uid, ip, ua,
     )
-    if b.ev != "hb":
+    if b.ev != "hb" and TOK_EVENTS.hit(key):
         await pool.execute(
             "insert into events(tg_id, sid, ev, tool, ip) values($1, $2, $3, $4, $5)",
             uid, b.sid, b.ev, b.tool, ip,
@@ -432,53 +575,99 @@ def admin_enabled() -> bool:
 
 
 def ip_ok(req: Request) -> bool:
-    return client_ip(req) == ADMIN_IP
+    return sec.in_nets(client_ip(req), ADMIN_NETS)
+
+
+# Серверный список действующих сессий: выход из админки реально отзывает cookie, а не только стирает её в браузере.
+# Список живёт в памяти, поэтому после перезапуска сервиса нужно войти заново.
+_sessions: dict[str, float] = {}   # jti -> когда истекает
+
+
+def new_token(kind: str, ip: str, ttl: int) -> str:
+    now = time.time()
+    for j in [j for j, e in _sessions.items() if e < now]:
+        _sessions.pop(j, None)
+    while len(_sessions) >= 20:
+        _sessions.pop(next(iter(_sessions)))
+    jti = secrets.token_urlsafe(16)
+    _sessions[jti] = now + ttl
+    return sign({"t": kind, "ip": ip, "exp": now + ttl, "j": jti})
+
+
+def drop_session(req: Request, cookie: str):
+    d = unsign(req.cookies.get(cookie, ""))
+    if d:
+        _sessions.pop(d.get("j"), None)
 
 
 def session_state(req: Request) -> str:
     ip = client_ip(req)
     for name, kind in (("hadm", "full"), ("hpre", "pre")):
         d = unsign(req.cookies.get(name, ""))
-        if d and d.get("t") == kind and d.get("ip") == ip:
+        if d and d.get("t") == kind and d.get("ip") == ip and _sessions.get(d.get("j"), 0) > time.time():
             return kind
     return "none"
+
+
+def check_origin(req: Request):
+    """POST в админку принимаем только со страницы самого сайта (защита от CSRF поверх SameSite=Strict)."""
+    origin = req.headers.get("origin")
+    if origin and urlsplit(origin).netloc != req.headers.get("host", ""):
+        raise HTTPException(403)
 
 
 def guard(req: Request, full: bool = True):
     if not ip_ok(req):
         raise HTTPException(404)
+    if req.method == "POST":
+        check_origin(req)
     if full and session_state(req) != "full":
         raise HTTPException(401)
 
 
 def put_cookie(resp, req: Request, name: str, value: str, max_age: int):
-    secure = (req.headers.get("x-forwarded-proto") or req.url.scheme) == "https"
+    secure = SITE_URL.startswith("https") or "https" in (req.headers.get("x-forwarded-proto") or req.url.scheme)
     resp.set_cookie(name, value, max_age=max_age, httponly=True, samesite="strict", secure=secure, path="/")
 
 
-_fails: dict[str, list] = {}   # ip -> [число ошибок, заблокирован до, начало окна]
+_fails = sec.Bounded(1000)            # ip -> [число ошибок, заблокирован до, начало окна]
+_fail_times: deque = deque(maxlen=200)  # время всех неудачных входов — для общей блокировки
+GLOBAL_FAIL_LIMIT = 30                  # столько ошибок за 15 минут со всех адресов — вход закрывается для всех
 
 
 def is_locked(ip: str) -> bool:
+    now = time.time()
     f = _fails.get(ip)
-    return bool(f and f[1] > time.time())
+    if f and f[1] > now:
+        return True
+    while _fail_times and _fail_times[0] < now - 900:
+        _fail_times.popleft()
+    return len(_fail_times) >= GLOBAL_FAIL_LIMIT
 
 
 def add_fail(ip: str):
     now = time.time()
+    _fail_times.append(now)
     f = _fails.get(ip)
     if not f or now - f[2] > 900:
         f = [0, 0, now]
     f[0] += 1
     if f[0] >= 5:
         f[1] = now + 900
-    _fails[ip] = f
+    _fails.put(ip, f)
+
+
+ADMIN_HTML = BASE / "admin" / "index.html"
+try:   # встроенные <script>/<style> админки разрешены в CSP только по хэшу их текста
+    ADMIN_CSP = sec.admin_csp(ADMIN_HTML.read_text("utf-8"))
+except OSError:
+    ADMIN_CSP = sec.CSP_PUBLIC
 
 
 def admin_page(req: Request):
     if not ip_ok(req):
         return RedirectResponse(main_url(req), status_code=302)
-    return FileResponse(BASE / "admin" / "index.html", headers={"Cache-Control": "no-store"})
+    return FileResponse(ADMIN_HTML, headers={"Cache-Control": "no-store", "Content-Security-Policy": ADMIN_CSP})
 
 
 @app.get("/admin")
@@ -521,7 +710,7 @@ async def admin_login(request: Request, body: Login):
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный логин или пароль."}, status_code=401)
     resp = JSONResponse({"ok": True, "step": "2fa"})
-    put_cookie(resp, request, "hpre", sign({"t": "pre", "ip": ip, "exp": time.time() + 300}), 300)
+    put_cookie(resp, request, "hpre", new_token("pre", ip, 300), 300)
     return resp
 
 
@@ -537,8 +726,9 @@ async def admin_2fa(request: Request, body: Code):
         add_fail(ip)
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный код."}, status_code=401)
+    drop_session(request, "hpre")          # код подтверждения одноразовый
     resp = JSONResponse({"ok": True})
-    put_cookie(resp, request, "hadm", sign({"t": "full", "ip": ip, "exp": time.time() + 8 * 3600}), 8 * 3600)
+    put_cookie(resp, request, "hadm", new_token("full", ip, 4 * 3600), 4 * 3600)
     resp.delete_cookie("hpre", path="/")
     return resp
 
@@ -546,6 +736,8 @@ async def admin_2fa(request: Request, body: Code):
 @app.post("/admin/api/logout")
 async def admin_logout(request: Request):
     guard(request, full=False)
+    drop_session(request, "hadm")
+    drop_session(request, "hpre")
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("hadm", path="/")
     resp.delete_cookie("hpre", path="/")
@@ -570,9 +762,14 @@ async def admin_online(request: Request):
     return {"online": n}
 
 
+_stats_cache = [0.0, None]   # тяжёлая выборка: не чаще раза в 10 секунд, сколько бы ни дёргали
+
+
 @app.get("/admin/api/stats")
 async def admin_stats(request: Request):
     guard(request)
+    if _stats_cache[1] is not None and time.monotonic() - _stats_cache[0] < 10:
+        return _stats_cache[1]
     d0, d6, d29 = day_bounds()
     tz = ADMIN_TZ
     cnt = """select count(*) as total,
@@ -616,7 +813,7 @@ async def admin_stats(request: Request):
     hrs = [0] * 24
     for r in hours:
         hrs[r["h"]] = r["c"]
-    return jsonable_encoder({
+    result = jsonable_encoder({
         "tz": tz,
         "users": dict(users), "requests": dict(reqs), "site": dict(vis), "sessions": dict(sess),
         "online": online, "funnel": dict(funnel), "clicks": dict(clicks),
@@ -624,6 +821,8 @@ async def admin_stats(request: Request):
         "visitors_daily": fill_days(v_d, d29), "hours": hrs,
         "devices": [dict(r) for r in devices], "tools": [dict(r) for r in tool_rows],
     })
+    _stats_cache[0], _stats_cache[1] = time.monotonic(), result
+    return result
 
 
 IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
@@ -646,7 +845,7 @@ async def admin_search(request: Request, q: str = ""):
     elif re.fullmatch(r"[\d.]+", q) and "." in q:                       # часть IP, например 91.224.
         rows = await pool.fetch(f"select {USER_COLS} from users u where {by_ip.format(op='like')} "
                                 "order by last_visit desc nulls last limit 30", q + "%")
-    elif q.isdigit():
+    elif re.fullmatch(r"[0-9]{1,15}", q):          # isdigit() пропускает «²» и гигантские числа — отсюда были 500-е
         rows = await pool.fetch(f"select {USER_COLS} from users u where u.tg_id = $1", int(q))
     else:
         esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -656,7 +855,7 @@ async def admin_search(request: Request, q: str = ""):
 
 
 @app.get("/admin/api/user/{tg_id}")
-async def admin_user(request: Request, tg_id: int):
+async def admin_user(request: Request, tg_id: int = ApiPath(ge=0, le=10**15)):
     guard(request)
     u = await pool.fetchrow("select tg_id, full_name, username, created_at from users where tg_id = $1", tg_id)
     if not u:
@@ -684,16 +883,15 @@ async def admin_user(request: Request, tg_id: int):
 
 
 # ====================== страницы и поддомены ======================
-@app.middleware("http")
-async def subdomain_pages(request: Request, call_next):
-    # about.<домен> и admin.<домен> (когда подключён свой домен)
-    host = request.headers.get("host", "").split(":")[0]
-    if request.url.path == "/":
-        if host.startswith("about."):
-            return FileResponse(BASE / "static" / "about.html")
-        if host.startswith("admin."):
-            return admin_page(request)
-    return await call_next(request)
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root_page(request: Request):
+    # about.<домен> и admin.<домен> (когда подключён свой домен); остальным — главная
+    host = request.headers.get("host", "").split(":")[0].lower()
+    if host.startswith("about."):
+        return FileResponse(BASE / "static" / "about.html")
+    if host.startswith("admin."):
+        return admin_page(request)
+    return FileResponse(BASE / "static" / "index.html")
 
 
 @app.get("/about")
