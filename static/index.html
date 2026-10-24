@@ -3,14 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Harledy Project</title>
+<title>Harledy Project — сборник инструментов</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="intro">
-<h1>
-  <svg class="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
-  Harledy Project
-</h1>
+<div id="hud" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
+
+<div id="splash" aria-hidden="true">
+  <div class="rg"></div><div class="rg g2"></div>
+  <div id="lens"><div id="pop"><div class="beam"></div><div id="glass"><div id="lensIn"></div></div><div class="handle"></div></div></div>
+</div>
+
+<div id="brand">
+  <h1>
+    <svg class="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+    <span id="brandText">Harledy Project</span>
+  </h1>
+  <p id="tag">сборник инструментов</p>
+</div>
 <nav id="nav">
   <a id="navAbout" href="/about">О нас</a>
   <a id="navCollab" href="/collab">Сотрудничество</a>
@@ -18,18 +28,26 @@
 <button id="theme" type="button">Light Mode</button>
 
 <svg id="tree" role="img" aria-label="Дерево инструментов"></svg>
+<p id="stats" hidden></p>
 <p id="hint">Загрузка…</p>
 <div id="deny" hidden></div>
 
 <aside id="panel" aria-hidden="true">
   <button id="close" type="button" aria-label="Закрыть">&times;</button>
-  <div id="crumb"></div>
-  <h2 id="ptitle"></h2>
-  <p id="pdesc"></p>
-  <div id="ptags"></div>
-  <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота ↗</a>
-  <a id="btnEternal" class="btn ghost" target="_blank" rel="noopener">Вечная ссылка</a>
-  <small>Вечная ссылка работает, если бот неактивен.</small>
+  <div class="phead">
+    <div class="kicker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Инструмент</div>
+    <div id="crumb"></div>
+    <h2 id="ptitle"></h2>
+  </div>
+  <div id="pbody">
+    <p id="pdesc"></p>
+    <div id="ptags"></div>
+  </div>
+  <div class="pfoot">
+    <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота ↗</a>
+    <a id="btnEternal" class="btn ghost" target="_blank" rel="noopener">Вечная ссылка</a>
+    <small>Вечная ссылка работает, если бот неактивен.</small>
+  </div>
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
