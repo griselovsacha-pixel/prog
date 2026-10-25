@@ -132,7 +132,16 @@ create index if not exists sessions_user_idx on sessions(tg_id, started_at desc)
 create index if not exists sessions_seen_idx on sessions(last_seen desc);
 create index if not exists events_user_idx on events(tg_id, created_at desc);
 create index if not exists events_tool_idx on events(ev, tool);
+create table if not exists ratings(
+    tg_id bigint not null,
+    tool text not null,
+    stars smallint not null check (stars between 1 and 5),
+    updated_at timestamptz not null default now(),
+    primary key (tg_id, tool)
+);
+create index if not exists ratings_tool_idx on ratings(tool);
 alter table users enable row level security;
+alter table ratings enable row level security;
 alter table visits enable row level security;
 alter table join_requests enable row level security;
 alter table sessions enable row level security;
@@ -402,6 +411,8 @@ NEW_SID = sec.Limiter(12, 3600)      # на один токен: новых се
 _sid_owner = sec.Bounded(20000)      # sid -> tg_id
 _last_visit = sec.Bounded(20000)     # tg_id -> когда писали визит
 TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей действий в базу за 10 минут (сверх лимита молча отбрасываем)
+TOK_RATE = sec.Limiter(20, 600)      # на один токен: оценок инструментов за 10 минут
+TOK_RATINGS = sec.Limiter(20, 60)    # на один токен: чтение сводного рейтинга
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
 NOSTORE = {"Cache-Control": "no-store"}
 
@@ -528,6 +539,50 @@ async def track(request: Request, b: Track):
             uid, b.sid, b.ev, b.tool, ip,
         )
     return {"ok": True}
+
+
+class Rate(BaseModel):
+    k: str = Field(default="", max_length=100)
+    tool: str = Field(max_length=200)
+    stars: int
+
+
+@app.post("/api/rate")
+async def rate(request: Request, b: Rate):
+    """Оценка инструмента от 1 до 5 звёзд. Один человек — одна (перезаписываемая) оценка на инструмент."""
+    if not TOOL_RE.fullmatch(b.tool) or not (1 <= b.stars <= 5):
+        return JSONResponse({"ok": False}, status_code=400)
+    key = access_key(request, b.k)
+    uid = await uid_by_token(key, client_ip(request))
+    if not uid:
+        return JSONResponse({"ok": False}, status_code=403)
+    if not TOK_RATE.hit(key):
+        return JSONResponse({"ok": False}, status_code=429, headers={"Retry-After": "30"})
+    await pool.execute(
+        """insert into ratings(tg_id, tool, stars) values($1, $2, $3)
+           on conflict (tg_id, tool) do update set stars = excluded.stars, updated_at = now()""",
+        uid, b.tool, b.stars,
+    )
+    row = await pool.fetchrow("select avg(stars)::float av, count(*) n from ratings where tool = $1", b.tool)
+    return JSONResponse({"ok": True, "avg": round(row["av"] or 0, 1), "count": row["n"], "mine": b.stars}, headers=NOSTORE)
+
+
+@app.get("/api/ratings")
+async def ratings(request: Request, k: str = ""):
+    """Сводный рейтинг по всем инструментам сразу: средняя оценка, число оценок и своя оценка."""
+    key = access_key(request, k)
+    uid = await uid_by_token(key, client_ip(request))
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_RATINGS.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    rows = await pool.fetch(
+        """select tool, avg(stars)::float av, count(*) n, max(stars) filter (where tg_id = $1) mine
+           from ratings group by tool""",
+        uid,
+    )
+    out = {r["tool"]: {"avg": round(r["av"] or 0, 1), "count": r["n"], "mine": r["mine"]} for r in rows}
+    return JSONResponse(out, headers=NOSTORE)
 
 
 # ====================== АДМИНКА ======================
