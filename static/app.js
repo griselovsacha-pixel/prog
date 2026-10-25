@@ -242,9 +242,7 @@ function showStats(tools, cats) {
 const INTRO_SCALE = 1.6;
 function playIntro() {
   const text = $('brandText'), splash = $('splash');
-  let seen = false;                              // полная заставка — один раз за вкладку, при обновлении страницы короткая
-  try { seen = !!sessionStorage.getItem('intro'); sessionStorage.setItem('intro', '1'); } catch (e) {}
-  if (seen || !text.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) { splash.remove(); return Promise.resolve(); }
+  if (!text.animate) { splash.remove(); return Promise.resolve(); }   // Web Animations нет — пропускаем
   const lens = $('lens'), pop = $('pop'), inner = $('lensIn');
   const r = text.getBoundingClientRect(), cs = getComputedStyle(text);
   const L = Math.round(Math.min(160, Math.max(100, r.height * 2.2))), Rr = L / 2, MAG = 1.55;
@@ -290,7 +288,7 @@ function playIntro() {
     } catch (e) { return { err: 'Ошибка загрузки: ' + (e && e.message ? e.message : e) }; }
   })();
 
-  await playIntro();                             // лупа проявляет название
+  try { await playIntro(); } catch (e) { $('splash') && $('splash').remove(); }   // лупа проявляет название
   document.body.classList.remove('intro');       // название уезжает наверх
   document.querySelector('.lupa').classList.add('draw');
   const res = await load;
