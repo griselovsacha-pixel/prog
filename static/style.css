@@ -144,7 +144,5 @@ body.intro #nav,body.intro #theme{opacity:0;pointer-events:none}
   #stats{left:20px;bottom:44px}
   #panel{padding:22px 18px 16px}
 }
-@media (prefers-reduced-motion:reduce){
-  *{transition:none!important;animation:none!important}
-  .lupa *{stroke-dashoffset:0}
-}
+/* «уменьшить движение»: заставка короткая и одноразовая, её оставляем; бесконечную анимацию «прицела» отключаем */
+@media (prefers-reduced-motion:reduce){.node:hover circle.ring,.node.sel circle.ring{animation:none}}
