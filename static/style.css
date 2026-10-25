@@ -130,6 +130,26 @@ body.intro #nav,body.intro #theme{opacity:0;pointer-events:none}
 #pdesc{font-size:15px;line-height:1.65;white-space:pre-line;overflow-wrap:anywhere}
 #ptags{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;padding-bottom:6px}
 #ptags span{border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:13px}
+
+/* ---- рейтинг инструмента: звёзды ---- */
+#prating{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.stars-avg{position:relative;display:inline-block;font-size:17px;line-height:1;letter-spacing:2px;vertical-align:middle}
+.stars-avg .row{display:block;white-space:nowrap}
+.stars-avg .bg{color:var(--line)}
+.stars-avg .fg{position:absolute;left:0;top:0;overflow:hidden;color:#f5b942}
+.ravg{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.ravg b{font-size:17px;color:var(--fg-h)}
+.ravg>span,.rcount{font-size:13px;color:var(--mute)}
+.ryours{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.ryours>span:first-child{font-size:13px;color:var(--mute)}
+.rstars{display:inline-flex;flex-direction:row-reverse;gap:2px}
+.rstars .rb{background:none;border:0;padding:2px;font-size:22px;line-height:1;color:var(--line);cursor:pointer;
+  transition:color .15s,transform .15s}
+.rstars .rb:hover{transform:scale(1.15)}
+.rstars .rb.on{color:#f5b942}
+/* обратный порядок в DOM + row-reverse: наведение подсвечивает звезду и все, что идёт ДО неё визуально */
+.rstars .rb:hover,.rstars .rb:hover ~ .rb{color:#f5b942}
+
 .pfoot{flex:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
 .btn{display:block;text-align:center;padding:14px 16px;border-radius:10px;font-weight:700;
   text-decoration:none;margin-top:10px;transition:transform .15s,filter .15s}
