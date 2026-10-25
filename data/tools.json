@@ -62,6 +62,13 @@
               "bot": "https://t.me/Prerecpnjsjdjdj_bot",
               "eternal": "https://t.me/Prerecpnjsjdjdj_bot",
               "tags": ["osint", "ник", "email", "валидность"]
+            },
+            {
+              "name": "Leak Osint",
+              "desc": "Топовый инструмент с множеством баз данных. Если бот пишет, что недоступен в России, смените язык на украинский, скройте номер и попробуйте снова.",
+              "bot": "https://t.me/Deleted_w2robot?start=FNVl0lY",
+              "eternal": "https://t.me/sartxriosbot?start=FNVl0lY",
+              "tags": ["osint", "утечки", "базы"]
             }
           ]
         },
@@ -69,25 +76,42 @@
           "name": "Sites",
           "children": [
             {
-              "name": "PimEyes",
-              "desc": "Платформа для поиска лиц на фотографиях по открытым источникам интернета.",
-              "bot": "https://pimeyes.com/en",
-              "eternal": "https://pimeyes.com/en",
-              "tags": ["поиск по фото", "лицо"]
+              "name": "Поиск по фото",
+              "children": [
+                {
+                  "name": "PimEyes",
+                  "desc": "Платформа для поиска лиц на фотографиях по открытым источникам интернета.",
+                  "bot": "https://pimeyes.com/en",
+                  "eternal": "https://pimeyes.com/en",
+                  "tags": ["поиск по фото", "лицо"]
+                },
+                {
+                  "name": "TinEye",
+                  "desc": "Поисковик по изображениям для нахождения оригинальных источников и похожих картинок.",
+                  "bot": "https://tineye.com/",
+                  "eternal": "https://tineye.com/",
+                  "tags": ["поиск по фото", "изображения"]
+                },
+                {
+                  "name": "Search Faces",
+                  "desc": "Поиск людей по фотографии лица через открытые базы данных.",
+                  "bot": "https://search4faces.com/",
+                  "eternal": "https://search4faces.com/",
+                  "tags": ["поиск по фото", "лицо"]
+                }
+              ]
             },
             {
-              "name": "TinEye",
-              "desc": "Поисковик по изображениям для нахождения оригинальных источников и похожих картинок.",
-              "bot": "https://tineye.com/",
-              "eternal": "https://tineye.com/",
-              "tags": ["поиск по фото", "изображения"]
-            },
-            {
-              "name": "IP Geolocation",
-              "desc": "Сервис для получения координат по IP-адресу. Введите IP, прокрутите страницу вниз для просмотра координат и проверьте их на Google или Яндекс Картах.",
-              "bot": "https://ipgeolocation.io/",
-              "eternal": "https://ipgeolocation.io/",
-              "tags": ["ip", "геолокация", "карты"]
+              "name": "Поиск по IP",
+              "children": [
+                {
+                  "name": "IP Geolocation",
+                  "desc": "Сервис для получения координат по IP-адресу. Введите IP, прокрутите страницу вниз для просмотра координат и проверьте их на Google или Яндекс Картах.",
+                  "bot": "https://ipgeolocation.io/",
+                  "eternal": "https://ipgeolocation.io/",
+                  "tags": ["ip", "геолокация", "карты"]
+                }
+              ]
             }
           ]
         }
@@ -150,6 +174,54 @@
               "tags": ["пранк", "звонки", "рф"]
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Check Valid",
+      "children": [
+        {
+          "name": "Проверить номер телефона",
+          "children": [
+            {
+              "name": "smsc.ru",
+              "desc": "Позволяет проверить доступен ли номер телефона и получить дополнительные данные о нем. Если вы не из России, потребуется VPN.",
+              "bot": "https://smsc.ru/testhlr/",
+              "eternal": "https://smsc.ru/testhlr/",
+              "tags": ["телефон", "hlr", "валидность"]
+            },
+            {
+              "name": "Epieos",
+              "desc": "Проверка номера телефона по открытым базам данных.",
+              "bot": "https://epieos.com/",
+              "eternal": "https://epieos.com/",
+              "tags": ["телефон", "osint"]
+            }
+          ]
+        },
+        {
+          "name": "Проверить почту",
+          "children": [
+            {
+              "name": "Epieos",
+              "desc": "Проверка почты и поиск связанных аккаунтов по открытым источникам.",
+              "bot": "https://epieos.com/",
+              "eternal": "https://epieos.com/",
+              "tags": ["почта", "email", "osint"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Получить метаданные",
+      "children": [
+        {
+          "name": "Exif-Ксия",
+          "desc": "Бот выдает метаданные (EXIF) с фотографий.",
+          "bot": "https://t.me/exifksia_bot",
+          "eternal": "https://t.me/exifksia_bot",
+          "tags": ["метаданные", "exif", "фото"]
         }
       ]
     }
