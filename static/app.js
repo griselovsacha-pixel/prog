@@ -1,4 +1,4 @@
-const DUR = 600, ROW = 50, LINK = 90, R = 7, GAPL = 14, PANEL_W = 380;
+const DUR = 600, ROW = 40, LINK = 90, R = 7, GAPL = 14, PANEL_W = 380;
 const EASE = d3.easeCubicInOut;
 const $ = id => document.getElementById(id);
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -13,6 +13,7 @@ if (new URLSearchParams(location.search).has('k')) {
 }
 // ссылки наружу открываем только по http(s): «javascript:» и подобное отбрасываем
 const safeUrl = u => {
+  if (!u) return '';
   try { const x = new URL(u, location.href); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (e) { return ''; }
 };
 const SID = String(window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)).replace(/[^\w-]/g, '');
@@ -40,9 +41,10 @@ const ctx = document.createElement('canvas').getContext('2d');
 const layout = d3.tree().nodeSize([ROW, 1]);
 
 let root, uid = 0, first = true, panelOpen = false;
+let RATINGS = {};
 
 const zoom = d3.zoom()
-  .scaleExtent([0.3, 2.5])
+  .scaleExtent([0.15, 3])
   .extent(() => [[0, 0], [svg.node().clientWidth, svg.node().clientHeight]])
   .on('zoom', e => g.attr('transform', e.transform));
 svg.call(zoom).on('dblclick.zoom', null);
@@ -159,12 +161,20 @@ function showPanel(d) {
   $('pbody').scrollTop = 0;
   $('ptags').replaceChildren(...(d.data.tags || []).map(t =>
     Object.assign(document.createElement('span'), { textContent: t })));
-  const setBtn = (id, url) => { const a = $(id); const u = safeUrl(url); a.hidden = !u; if (u) a.href = u; };
-  setBtn('btnBot', d.data.bot);
-  setBtn('btnEternal', d.data.eternal);
+  const isTg = u => /^https?:\/\/t(elegram)?\.me\//i.test(u || '');
+  const bot = safeUrl(d.data.bot), eternal = safeUrl(d.data.eternal);
+  const bTg = isTg(d.data.bot);
+  $('btnBot').hidden = !bot;
+  if (bot) { $('btnBot').href = bot; $('btnBot').textContent = (bTg ? 'Перейти в бота' : 'Перейти на сайт') + ' ↗'; }
+  const showEternal = eternal && eternal !== bot;                 // не дублируем одну и ту же ссылку
+  $('btnEternal').hidden = !showEternal;
+  if (showEternal) { $('btnEternal').href = eternal; $('btnEternal').textContent = bTg ? 'Вечная ссылка' : 'Зеркало'; }
+  $('pfootNote').hidden = !showEternal;
+  if (showEternal) $('pfootNote').textContent = bTg ? 'Вечная ссылка работает, если бот неактивен.' : 'Зеркало работает, если основной адрес недоступен.';
   nodeG.selectAll('g.node').classed('sel', n => n === d);
   curTool = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › ');
   track('select', curTool);
+  renderRating(curTool);
   togglePanel(true);
   requestAnimationFrame(updateFade);
   setTimeout(updateFade, 450);
@@ -184,6 +194,16 @@ function deny(msg) {
   el.hidden = false;
   $('hint').style.display = 'none';
 }
+
+function zoomStep(k) {
+  const c = [svg.node().clientWidth / 2, svg.node().clientHeight / 2];
+  svg.transition().duration(260).call(zoom.scaleBy, k, c);
+}
+$('zoomIn').onclick = () => zoomStep(1.4);
+$('zoomOut').onclick = () => zoomStep(1 / 1.4);
+$('zoomFit').onclick = () => root && update(root);
+// двойной клик по пустому месту — приблизить к этой точке (одиночный клик по пустому месту закрывает карточку)
+svg.on('dblclick', e => { if (e.target === svg.node()) svg.transition().duration(260).call(zoom.scaleBy, 1.6, d3.pointer(e)); });
 
 function init(data) {
   root = d3.hierarchy(data);
@@ -236,6 +256,39 @@ function showStats(tools, cats) {
     if (p < 1) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
+}
+
+
+// ---- звёзды рейтинга: средняя (дробная заливка через clip-path) и своя оценка (кликабельная)
+function starsAvgSvg(avg) {
+  const pct = Math.max(0, Math.min(5, avg)) / 5 * 100;
+  return `<span class="stars-avg"><span class="row bg">★★★★★</span><span class="row fg" style="width:${pct}%">★★★★★</span></span>`;
+}
+function renderRating(tool) {
+  const box = $('prating'), r = RATINGS[tool] || { avg: 0, count: 0, mine: 0 };
+  box.innerHTML = `
+    <div class="ravg">${starsAvgSvg(r.avg)}<b>${r.count ? r.avg.toFixed(1).replace('.', ',') : '—'}</b><span>/5</span>
+      <span class="rcount">${r.count ? `· ${r.count} ${plural(r.count, ['оценка', 'оценки', 'оценок'])}` : '· пока нет оценок'}</span></div>
+    <div class="ryours">
+      <span>Ваша оценка:</span>
+      <span class="rstars" role="radiogroup" aria-label="Оценить инструмент">
+        ${[5, 4, 3, 2, 1].map(n => `<button type="button" class="rb${n <= (r.mine || 0) ? ' on' : ''}" data-n="${n}" aria-label="${n} из 5">★</button>`).join('')}
+      </span>
+    </div>`;
+  box.querySelectorAll('.rb').forEach(btn => btn.onclick = () => sendRating(tool, +btn.dataset.n));
+}
+async function sendRating(tool, stars) {
+  if (!K) return;
+  RATINGS[tool] = { ...(RATINGS[tool] || { avg: 0, count: 0 }), mine: stars };   // мгновенный отклик
+  renderRating(tool);
+  track('rate', tool);
+  try {
+    const res = await fetch('/api/rate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Access-Key': K },
+      body: JSON.stringify({ tool, stars }),
+    });
+    if (res.ok) { const d = await res.json(); RATINGS[tool] = { avg: d.avg, count: d.count, mine: d.mine }; if (curTool === tool) renderRating(tool); }
+  } catch (e) {}
 }
 
 // ---- заставка: лупа проезжает по названию и «проявляет» его, затем уезжает наверх
@@ -295,4 +348,6 @@ function playIntro() {
   await wait(450);
   if (!res.data) return deny(res.err);
   try { init(res.data); startBeat(); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
+  if (K) fetch('/api/ratings', { headers: { 'X-Access-Key': K } })
+    .then(r => (r.ok ? r.json() : {})).then(d => { RATINGS = d || {}; }).catch(() => {});
 })();
