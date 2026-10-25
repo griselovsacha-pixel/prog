@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harledy Project — сборник инструментов</title>
-<link rel="stylesheet" href="/style.css?v=4">
+<link rel="stylesheet" href="/style.css?v=5">
 </head>
 <body class="intro">
 <div id="hud" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
@@ -28,6 +28,11 @@
 <button id="theme" type="button">Light Mode</button>
 
 <svg id="tree" role="img" aria-label="Дерево инструментов"></svg>
+<div id="zoom">
+  <button id="zoomIn" type="button" aria-label="Приблизить">+</button>
+  <button id="zoomOut" type="button" aria-label="Отдалить">&minus;</button>
+  <button id="zoomFit" type="button" aria-label="Показать всё дерево">⤢</button>
+</div>
 <p id="stats" hidden></p>
 <p id="hint">Загрузка…</p>
 <div id="deny" hidden></div>
@@ -46,11 +51,11 @@
   <div class="pfoot">
     <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота ↗</a>
     <a id="btnEternal" class="btn ghost" target="_blank" rel="noopener">Вечная ссылка</a>
-    <small>Вечная ссылка работает, если бот неактивен.</small>
+    <small id="pfootNote">Вечная ссылка работает, если бот неактивен.</small>
   </div>
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="/app.js?v=4"></script>
+<script src="/app.js?v=5"></script>
 </body>
 </html>
