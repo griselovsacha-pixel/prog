@@ -1,4 +1,4 @@
-const DUR = 600, ROW = 40, LINK = 90, R = 7, GAPL = 14, PANEL_W = 380;
+const DUR = 320, ROW = 40, LINK = 90, R = 7, GAPL = 14, PANEL_W = 380;
 const EASE = d3.easeCubicInOut;
 const $ = id => document.getElementById(id);
 const wait = ms => new Promise(r => setTimeout(r, ms));
