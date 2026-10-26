@@ -76,6 +76,34 @@
               "bot": "https://t.me/who_aibot",
               "eternal": "https://t.me/who_aibot",
               "tags": ["osint", "реестры", "поиск данных"]
+            },
+            {
+              "name": "DOZOR",
+              "desc": "Универсальный бот для поиска информации о людях. Актуальное зеркало — на do-zor.com.",
+              "bot": "https://t.me/cyberbot0verl04dbot?start=r_8521863420",
+              "eternal": "https://do-zor.com/",
+              "tags": ["osint", "поиск людей", "пробив"]
+            },
+            {
+              "name": "XwerTool",
+              "desc": "Многофункциональный OSINT-бот. Поддерживает детализированный поиск по ФИО, email, телефону, VIN, авто, паспортам, ИНН, СНИЛС, кадастровому номеру и Telegram.",
+              "bot": "https://t.me/xwertool_robot",
+              "eternal": "https://t.me/XwerTool",
+              "tags": ["osint", "пробив", "документы", "ФИО"]
+            },
+            {
+              "name": "Черный Крест",
+              "desc": "Мультитул для анализа и пробива. Включает поиск по базам, бомбер, информацию об IP и юзернейму, IP-логгер, поиск по времени, извлечение EXIF-данных и таблицы.",
+              "bot": "https://t.me/chernyi_krestik_bot?start=ODUyMTg2MzQyMA",
+              "eternal": "https://t.me/+A9Gp1unoBvc0MGVi",
+              "tags": ["osint", "пробив", "бомбер", "ip", "exif"]
+            },
+            {
+              "name": "Maigret",
+              "desc": "Поиск цифрового следа по юзернейму. Проверяет аккаунты на множестве платформ и выдаёт рекомендации по защите приватности.",
+              "bot": "https://t.me/maigret_search_protection_bot",
+              "eternal": "https://bit.ly/maigret-osint",
+              "tags": ["osint", "username", "цифровой след"]
             }
           ]
         },
@@ -163,6 +191,13 @@
                   "bot": "https://tonscan.org/",
                   "eternal": "https://tonscan.org/",
                   "tags": ["ton", "крипта", "кошелёк", "osint"]
+                },
+                {
+                  "name": "Sledopyt AML",
+                  "desc": "Бот для AML-проверки TON-кошельков. Показывает связи адресов, историю транзакций, проверяет токены и NFT на подделку, а также помогает отследить украденные средства.",
+                  "bot": "https://t.me/Sledopyt_aml_bot",
+                  "eternal": "https://t.me/Sledopyt_aml_bot",
+                  "tags": ["ton", "aml", "крипта", "безопасность"]
                 }
               ]
             }
@@ -263,13 +298,32 @@
       ]
     },
     {
-      "name": "Метаданные",
+      "name": "Получить метаданные",
       "children": [
         {
           "name": "Exif-Ксия",
           "desc": "Бот извлекает метаданные (EXIF) из фотографий: модель камеры, дату съёмки и, если не удалены, координаты места съёмки.",
           "bot": "https://t.me/exifksia_bot",
           "tags": ["метаданные", "exif", "фото"]
+        }
+      ]
+    },
+    {
+      "name": "Поиск по ВК",
+      "children": [
+        {
+          "name": "VKUserInfo",
+          "desc": "Выдаёт всю историю профиля ВК за последний год.",
+          "bot": "https://t.me/VKInfoRobot",
+          "eternal": "https://t.me/VKInfoRobot",
+          "tags": ["вк", "история", "профиль"]
+        },
+        {
+          "name": "220VK",
+          "desc": "Сервис для анализа страницы ВК: определяет средний возраст друзей, скрытых друзей, города друзей и дату регистрации.",
+          "bot": "https://old.220vk.com/",
+          "eternal": "https://old.220vk.com/",
+          "tags": ["вк", "анализ", "друзья"]
         }
       ]
     }
