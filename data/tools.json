@@ -69,6 +69,13 @@
               "bot": "https://t.me/Deleted_w2robot?start=FNVl0lY",
               "eternal": "https://t.me/sartxriosbot?start=FNVl0lY",
               "tags": ["osint", "утечки", "базы"]
+            },
+            {
+              "name": "Onux",
+              "desc": "Поиск данных в разных реестрах. Поддерживает множество типов запросов.",
+              "bot": "https://t.me/who_aibot",
+              "eternal": "https://t.me/who_aibot",
+              "tags": ["osint", "реестры", "поиск данных"]
             }
           ]
         },
