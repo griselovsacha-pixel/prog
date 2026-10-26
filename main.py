@@ -26,6 +26,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery, ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
@@ -36,6 +37,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import bot_features as bf
 import security as sec
 
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +53,11 @@ CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or -1004319976611)  # переме
 BASE = Path(__file__).parent
 # Telegram ID владельцев: только им бот отвечает ID канала на пересланный пост
 ADMIN_TG_IDS = {int(x) for x in re.findall(r"\d+", os.environ.get("ADMIN_TG_IDS", ""))}
+
+# заявки «Добавить свой инструмент» приходят этому Telegram ID; Crypto Pay — токен только из переменных окружения
+TOOL_REVIEW_CHAT = int(os.environ.get("TOOL_REVIEW_CHAT") or 8521863420)
+CRYPTO_PAY_TOKEN = os.environ.get("CRYPTO_PAY_TOKEN", "").strip()
+CRYPTO_PAY_HOST = os.environ.get("CRYPTO_PAY_HOST", "https://pay.crypt.bot").strip()   # для тестов: https://testnet-pay.crypt.bot
 
 # где лежит список инструментов: переменная TOOLS_FILE, секретный файл Render, либо data/tools.json
 TOOLS_PATHS = [p for p in (os.environ.get("TOOLS_FILE"), "/etc/secrets/tools.json", str(BASE / "data" / "tools.json")) if p]
@@ -222,24 +229,38 @@ async def send_gate(bot: Bot, chat_id: int):
     )
 
 
+def menu_kb(link: str, icons: bool) -> InlineKeyboardMarkup:
+    def btn(text, icon, **kw):
+        extra = {"icon_custom_emoji_id": icon} if icons else {}
+        return InlineKeyboardButton(text=text, **kw, **extra)
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Открыть Harledy Project", url=link)],
+        [btn("Добавить свой инструмент", bf.BTN["add"], callback_data="addtool")],
+        [btn("Поддержать проект", bf.BTN["support"], callback_data="support")],
+    ])
+
+
 async def send_menu(bot: Bot, u):
     token = await ensure_user(u)
     link = f"{SITE_URL}/?k={token}"
     name = html.escape(f"@{u.username}" if u.username else u.full_name)
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Открыть Harledy Project", url=link)]]
-    )
-    await send(                                        # одним сообщением вместо двух — бот отвечает заметно быстрее
+    try:                                               # большой эмодзи отдельным сообщением — как стикер
+        await bot.send_message(u.id, emoji(EMOJI_MAIN, "🔍"))
+    except TelegramBadRequest:
+        await bot.send_message(u.id, "🔍")
+    await send(
         bot, u.id,
-        f"{emoji(EMOJI_MAIN, '🔍')} Приветствую, {name}!\n"
+        f"Приветствую, {name}!\n"
         f"Сборник инструментов Harledy Project доступен по ссылке ниже {emoji(EMOJI_LINK, '👇')}\n\n"
         "<i>Сайт желательно открывать с компьютера, так как мобильная версия может работать некорректно.</i>",
-        kb=kb,
+        kb=menu_kb(link, True), kb_plain=menu_kb(link, False),
     )
 
 
 @router.message(CommandStart())
-async def on_start(m: Message):
+async def on_start(m: Message, state: FSMContext):
+    await state.clear()                       # /start сбрасывает незаконченный диалог «Добавить инструмент»
     await ensure_user(m.from_user)  # ссылка создаётся сразу, при первом контакте
     if await has_access(m.bot, m.from_user.id):
         await send_menu(m.bot, m.from_user)
@@ -359,6 +380,9 @@ async def lifespan(app: FastAPI):
     dp = Dispatcher()
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
+    dp.include_router(bf.router)
+    bf.configure(has_access=has_access, tools_json=tools_json, admin_id=TOOL_REVIEW_CHAT, channel_id=CHANNEL_ID,
+                 channel_link=CHANNEL_LINK, crypto_token=CRYPTO_PAY_TOKEN, crypto_host=CRYPTO_PAY_HOST)
     try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
         await bot.delete_webhook(drop_pending_updates=True)
         await diagnose(bot)
