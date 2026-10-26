@@ -71,6 +71,32 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
 .ev{padding:5px 0;border-bottom:1px solid #2a2a2a}
 .ev b{color:var(--hi);font-weight:600}
 .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);margin-left:6px;color:var(--mute)}
+.ulist{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.ucard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.ucard .nm{color:var(--hi);font-size:16px;font-weight:700;overflow-wrap:anywhere}
+.ucard .sub{color:var(--mute);font-size:12px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+.kv dt{color:var(--mute)}
+.kv dd{margin:0;color:var(--hi);overflow-wrap:anywhere}
+.ucard h5{font-size:11px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 0}
+.iprow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:5px 0;border-bottom:1px solid #2a2a2a;font-size:13px}
+.iprow:last-child{border:0}
+.iprow .meta{color:var(--mute);font-size:12px;flex:1;min-width:90px}
+.chk{background:none;border:1px solid var(--line);color:var(--fg);padding:2px 10px;border-radius:7px;font-size:12px}
+.chk:hover{border-color:var(--blue);color:var(--hi)}
+.chk[disabled]{opacity:.6;cursor:wait}
+.ipres{flex-basis:100%;background:#1a1a1a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:4px 0 2px;font-size:12.5px}
+.ipres .kv{font-size:12.5px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{font-size:11px;padding:1px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute)}
+.chip.bad{color:#e5736f;border-color:#6b3533}
+.chip.ok{color:var(--green);border-color:#2f5a45}
+.uact{display:flex;gap:8px;margin-top:auto}
+.uact button,.more button,.back{background:none;border:1px solid var(--line);color:var(--fg);padding:6px 14px;border-radius:8px}
+.uact button:hover,.more button:hover,.back:hover{border-color:var(--fg);color:var(--hi)}
+.more{text-align:center;margin:16px 0}
+.ulist-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--mute);margin-bottom:12px}
+.back{margin-bottom:12px}
 
 #gate{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.4);padding:20px}
 #gate[hidden]{display:none}
@@ -81,7 +107,7 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
 .gate .code{letter-spacing:.5em;text-align:center;font-size:22px}
 .gate button{width:100%;background:var(--blue);color:#fff;border:0;border-radius:10px;padding:12px;font-weight:700;margin-top:4px}
 .err{color:#e5736f;min-height:20px;margin-top:10px;font-size:13px}
-@media (max-width:700px){.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}main{padding:14px}}
+@media (max-width:700px){.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}.ulist{grid-template-columns:1fr}main{padding:14px}}
 </style>
 </head>
 <body class="locked">
@@ -115,7 +141,12 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
     </section>
     <section id="tab-users" hidden>
       <div class="search"><input id="q" placeholder="Юзернейм, ID, имя или IP" autocomplete="off"><button id="go">Найти</button></div>
-      <div id="results"></div><div id="detail"></div>
+      <div id="listwrap">
+        <div class="ulist-head"><span id="ucount">Загрузка…</span><span id="ipq"></span></div>
+        <div id="results" class="ulist"></div>
+        <div class="more" id="more" hidden><button id="moreBtn">Показать ещё</button></div>
+      </div>
+      <div id="detail"></div>
     </section>
   </main>
 </div>
@@ -137,7 +168,7 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-let TZ = 'Europe/Kyiv', timers = [];
+let TZ = 'Europe/Kyiv', timers = [], USERS_LOADED = false;
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = n => (n == null ? '—' : Number(n).toLocaleString('ru-RU'));
 const dur = s => { s = Math.round(+s || 0); if (s < 60) return s + ' с'; const m = Math.floor(s / 60);
@@ -263,22 +294,94 @@ async function loadStats() { const r = await api('stats'); if (r.ok) render(r.da
 async function pollOnline() { const r = await api('online'); if (r.ok) { $('#liveN').textContent = num(r.data.online); const k = $('#kOnline'); if (k) k.textContent = num(r.data.online); } }
 
 /* ---------- пользователи ---------- */
-async function search() {
-  const q = $('#q').value.trim(); if (!q) return;
-  const r = await api('search?q=' + encodeURIComponent(q)); const items = (r.data.items) || [];
-  $('#detail').innerHTML = '';
-  if (items.length === 1) return openUser(items[0].tg_id);
-  $('#results').innerHTML = items.length ? `<div class="card"><table><tr><th>Пользователь</th><th>ID</th><th>Регистрация</th><th>Визитов</th><th>Последний визит</th></tr>` +
-    items.map(i => `<tr class="link" data-id="${i.tg_id}"><td>${esc(i.full_name || '—')} ${i.username ? '<span class="mute">@' + esc(i.username) + '</span>' : ''}</td><td>${i.tg_id}</td><td>${when(i.created_at)}</td><td>${i.visits}</td><td>${when(i.last_visit)}</td></tr>`).join('') + '</table></div>'
-    : '<div class="empty">Ничего не найдено</div>';
-  document.querySelectorAll('#results tr.link').forEach(t => t.onclick = () => openUser(t.dataset.id));
+const PAGE = 30;
+const LIST = {q: '', offset: 0, total: 0, loading: false};
+const dt = iso => iso ? when(iso) : '—';
+const isIp = v => /^\d{1,3}(\.\d{1,3}){3}$/.test(v) || (v.includes(':') && /^[0-9a-f:.]+$/i.test(v));
+const kvRow = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+
+function ipRows(ips) {
+  return ips.length ? ips.map(i => `<div class="iprow"><a class="ip" data-ip="${esc(i.ip)}" title="Найти всех с этим IP">${esc(i.ip)}</a>
+    <span class="meta">заходов: ${i.n} · ${when(i.last)}</span><button type="button" class="chk" data-chk="${esc(i.ip)}">Проверить IP</button>
+    <div class="ipres" hidden></div></div>`).join('') : '<div class="empty" style="padding:4px 0">Нет данных</div>';
+}
+
+function userCard(u) {
+  return `<div class="ucard" data-id="${u.tg_id}">
+    <div><div class="nm">${esc(u.full_name || '—')}</div>
+      <div class="sub">${u.username ? '@' + esc(u.username) : 'без юзернейма'}</div></div>
+    <dl class="kv">
+      ${kvRow('ID', u.tg_id)}
+      ${kvRow('Регистрация', dt(u.created_at))}
+      ${kvRow('Заявка в канал', u.join_request_at ? dt(u.join_request_at) : 'не подавал')}
+      ${kvRow('Визитов', `${num(u.visits)} <span class="mute">· первый ${dt(u.first_visit)} · последний ${dt(u.last_visit)}</span>`)}
+      ${kvRow('Сессий', `${num(u.sessions)} <span class="mute">· всего ${dur(u.time_total)} · был ${dt(u.last_seen)}</span>`)}
+      ${kvRow('Устройство', u.user_agent ? dev(u.user_agent) + ' <span class="mute">' + esc(u.user_agent.slice(0, 80)) + '</span>' : '—')}
+      ${kvRow('Инструменты', `открыл ${u.tools_opened} · в бота ${u.bot_clicks} · вечная ${u.eternal_clicks}`)}
+      ${kvRow('Оценок', u.ratings)}
+    </dl>
+    <h5>IP-адреса</h5><div>${ipRows(u.ips)}</div>
+    <div class="uact"><button type="button" data-open="${u.tg_id}">Подробнее</button></div>
+  </div>`;
+}
+
+async function loadUsers(reset) {
+  if (LIST.loading) return;
+  LIST.loading = true;
+  if (reset) { LIST.offset = 0; $('#results').innerHTML = ''; $('#more').hidden = true; $('#ucount').textContent = 'Загрузка…'; }
+  const r = await api(`users?limit=${PAGE}&offset=${LIST.offset}&q=${encodeURIComponent(LIST.q)}`);
+  LIST.loading = false;
+  if (!r.ok) { $('#ucount').textContent = 'Не удалось загрузить пользователей'; return; }
+  const d = r.data, items = d.items || [];
+  LIST.total = d.total; LIST.offset += items.length;
+  $('#results').insertAdjacentHTML('beforeend', items.map(userCard).join(''));
+  $('#ucount').textContent = LIST.q ? `Найдено: ${num(d.total)}` : `Всего пользователей: ${num(d.total)}`;
+  if (!d.total) $('#results').innerHTML = '<div class="empty">Ничего не найдено</div>';
+  $('#more').hidden = LIST.offset >= d.total;
+  $('#ipq').innerHTML = isIp(LIST.q) ? `<span class="iprow" style="border:0;padding:0"><button type="button" class="chk" data-chk="${esc(LIST.q)}">Проверить IP ${esc(LIST.q)}</button><div class="ipres" hidden></div></span>` : '';
+}
+
+function search() { LIST.q = $('#q').value.trim().replace(/^@/, ''); closeUser(); loadUsers(true); }
+
+function closeUser() { $('#detail').innerHTML = ''; $('#listwrap').hidden = false; }
+
+const IPFLAGS = {vpn: 'VPN', proxy: 'Прокси', tor: 'Tor', datacenter: 'Датацентр / хостинг', mobile: 'Мобильная сеть', abuser: 'Замечен в злоупотреблениях'};
+const flagEmoji = cc => /^[A-Za-z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc.toUpperCase()].map(c => 127397 + c.charCodeAt(0))) + ' ' : '';
+
+function ipReport(d) {
+  if (d.error) return `<span style="color:#e5736f">${esc(d.error)}</span>`;
+  const place = [d.city, d.region, d.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+  const chips = Object.entries(d.flags || {}).map(([k, v]) => {
+    const risky = k !== 'mobile';
+    return `<span class="chip ${v ? (risky ? 'bad' : '') : 'ok'}">${esc(IPFLAGS[k] || k)}: ${v ? 'да' : 'нет'}</span>`; }).join('');
+  return `<dl class="kv">
+    ${kvRow('Страна / город', place ? flagEmoji(d.country_code) + esc(place) : '—')}
+    ${kvRow('Провайдер', esc(d.isp || '—'))}
+    ${d.org && d.org !== d.isp ? kvRow('Организация', esc(d.org)) : ''}
+    ${kvRow('ASN', d.asn ? 'AS' + esc(String(d.asn).replace(/^AS/i, '')) : '—')}
+    ${d.company_type ? kvRow('Тип сети', esc(d.company_type)) : ''}
+    ${kvRow('Часовой пояс', esc(d.timezone || '—'))}
+    ${d.lat != null && d.lon != null ? kvRow('Координаты', esc(d.lat) + ', ' + esc(d.lon)) : ''}
+    ${kvRow('Reverse DNS', esc(d.reverse_dns || '—'))}
+  </dl>${chips ? `<div class="chips">${chips}</div>` : ''}
+  <div class="mute" style="margin-top:8px;font-size:11px">Источники: ${esc((d.sources || []).join(', ') || '—')} · геолокация по IP приблизительная</div>`;
+}
+
+async function checkIp(btn) {
+  const box = btn.parentElement.querySelector('.ipres'); if (!box) return;
+  if (!box.hidden && box.dataset.done) { box.hidden = true; return; }     // повторный клик — свернуть
+  btn.disabled = true; const label = btn.textContent; btn.textContent = 'Проверяю…';
+  box.hidden = false; box.removeAttribute('data-done'); box.innerHTML = '<span class="mute">Запрос к публичным сервисам…</span>';
+  const r = await api('ip/' + encodeURIComponent(btn.dataset.chk));
+  box.innerHTML = ipReport(r.data && Object.keys(r.data).length ? r.data : {error: 'Не удалось получить ответ'});
+  box.dataset.done = '1'; btn.disabled = false; btn.textContent = label;
 }
 
 async function openUser(id) {
-  $('#results').innerHTML = '';
-  const r = await api('user/' + id); if (!r.ok) { $('#detail').innerHTML = '<div class="empty">Пользователь не найден</div>'; return; }
+  $('#listwrap').hidden = true;
+  const r = await api('user/' + id); if (!r.ok) { $('#detail').innerHTML = '<button type="button" class="back" id="backBtn">← К списку</button><div class="empty">Пользователь не найден</div>'; return; }
   const d = r.data, u = d.user, ss = d.sessions_stat, v = d.visits;
-  $('#detail').innerHTML = `<div class="card">
+  $('#detail').innerHTML = `<button type="button" class="back" id="backBtn">← К списку</button><div class="card">
     <div class="uhead"><h3>${esc(u.full_name || '—')}</h3><div class="mute">${u.username ? '@' + esc(u.username) + ' · ' : ''}ID ${u.tg_id}</div></div>
     <div class="kpis" style="margin-top:14px">
       <div class="kpi"><div class="k">Регистрация в боте</div><div class="s" style="color:#fff;font-size:14px">${when(u.created_at)}</div></div>
@@ -289,18 +392,26 @@ async function openUser(id) {
     <h4>Что выбирал</h4>${d.tools.length ? `<table><tr><th>Инструмент</th><th>Открыл</th><th>В бота</th><th>Вечная</th><th>Последний раз</th></tr>` +
       d.tools.map(t => `<tr><td>${esc(t.tool)}</td><td>${t.sel}</td><td>${t.bot}</td><td>${t.eternal}</td><td>${when(t.last)}</td></tr>`).join('') + '</table>' : '<div class="empty">Инструменты не выбирал</div>'}
     <div class="grid2" style="margin-top:0">
-      <div><h4>IP-адреса <span class="mute">(клик — найти всех с этим IP)</span></h4>${d.ips.length ? '<table><tr><th>IP</th><th>Заходов</th><th>Последний</th></tr>' +
-        d.ips.map(i => `<tr><td><a class="ip" data-ip="${esc(i.ip)}">${esc(i.ip)}</a></td><td>${i.n}</td><td>${when(i.last)}</td></tr>`).join('') + '</table>' : '<div class="empty">Нет данных</div>'}</div>
+      <div><h4>IP-адреса <span class="mute">(клик — найти всех с этим IP)</span></h4>${ipRows(d.ips)}</div>
       <div><h4>Сессии</h4>${d.sessions.length ? '<table><tr><th>Начало</th><th>Длилась</th><th>Устройство</th></tr>' +
         d.sessions.map(s => `<tr><td>${when(s.started_at)}</td><td>${dur(s.secs)}</td><td>${dev(s.user_agent)}</td></tr>`).join('') + '</table>' : '<div class="empty">Нет данных</div>'}</div>
     </div>
     <h4>Последние действия</h4>${d.events.length ? d.events.map(e => `<div class="ev"><span class="mute">${when(e.created_at)}</span> — ${EV[e.ev] || esc(e.ev)}: <b>${esc(e.tool || '')}</b></div>`).join('') : '<div class="empty">Действий нет</div>'}
   </div>`;
-  document.querySelectorAll('a.ip').forEach(a => a.onclick = () => { $('#q').value = a.dataset.ip; search(); });
 }
 
+/* делегирование: карточки и IP-строки создаются динамически, inline-обработчики запрещены CSP */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-chk],[data-open],a.ip,#backBtn');
+  if (!t) return;
+  if (t.dataset.chk) checkIp(t);
+  else if (t.dataset.open) openUser(t.dataset.open);
+  else if (t.id === 'backBtn') closeUser();
+  else if (t.classList.contains('ip')) { $('#q').value = t.dataset.ip; search(); window.scrollTo({top: 0}); }
+});
+
 /* ---------- вход ---------- */
-function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
+function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); USERS_LOADED = false; $('#results').innerHTML = ''; $('#detail').innerHTML = ''; $('#listwrap').hidden = false; $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
 function unlock() {
   document.body.classList.remove('locked'); $('#gate').hidden = true;
   loadStats(); timers.push(setInterval(pollOnline, 10000), setInterval(loadStats, 60000));
@@ -320,8 +431,11 @@ $('#logout').onclick = async () => { await api('logout', {}); lock(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   ['bot', 'site', 'users'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  if (b.dataset.tab === 'users' && !USERS_LOADED) { USERS_LOADED = true; loadUsers(true); }
 });
-$('#go').onclick = search; $('#q').onkeydown = e => e.key === 'Enter' && search();
+$('#go').onclick = search;
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });   // не возвращаем false: это отменяло ввод символов
+$('#moreBtn').onclick = () => loadUsers(false);
 
 (async () => {
   skeleton();
