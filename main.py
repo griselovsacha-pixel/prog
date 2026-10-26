@@ -987,11 +987,15 @@ async def _rdns(ip: str) -> str | None:
 
 def summarize_ip(ip: str, whois: dict | None, ipapi: dict | None, ipapi_com: dict | None, rdns: str | None) -> dict:
     """Склеивает ответы сервисов в одну сводку; каждое поле берём из первого сервиса, который его вернул."""
-    w = whois if whois and whois.get("success") is not False else {}
-    a = ipapi or {}
-    c = ipapi_com if ipapi_com and ipapi_com.get("status") == "success" else {}
-    wconn, wtz = w.get("connection") or {}, w.get("timezone") or {}
-    loc, comp, asn = a.get("location") or {}, a.get("company") or {}, a.get("asn") or {}
+    def obj(x):                      # сервисы иногда отдают вместо объекта строку/null — не падаем
+        return x if isinstance(x, dict) else {}
+
+    w = obj(whois) if obj(whois).get("success") is not False else {}
+    a = obj(ipapi)
+    c = obj(ipapi_com) if obj(ipapi_com).get("status") == "success" else {}
+    wconn, wtz = obj(w.get("connection")), obj(w.get("timezone"))
+    loc, comp, asn = obj(a.get("location")), obj(a.get("company")), obj(a.get("asn"))
+    asn_plain = a.get("asn") if isinstance(a.get("asn"), (int, str)) else None
 
     def first(*vals):
         return next((v for v in vals if v not in (None, "")), None)
@@ -1001,7 +1005,8 @@ def summarize_ip(ip: str, whois: dict | None, ipapi: dict | None, ipapi_com: dic
         "tor": first(a.get("is_tor")), "datacenter": first(a.get("is_datacenter"), c.get("hosting")),
         "mobile": first(a.get("is_mobile"), c.get("mobile")), "abuser": first(a.get("is_abuser")),
     }
-    asn_num = first(wconn.get("asn"), asn.get("asn"), (c.get("as") or "").split(" ")[0].lstrip("AS") or None)
+    asn_num = first(wconn.get("asn"), asn.get("asn"), asn_plain,
+                    str(c.get("as") or "").split(" ")[0].removeprefix("AS") or None)
     out = {
         "ip": ip,
         "country": first(w.get("country"), loc.get("country"), c.get("country")),
