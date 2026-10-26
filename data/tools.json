@@ -102,6 +102,13 @@
                   "desc": "Поиск людей по фотографии лица через открытые базы данных, включая соцсети.",
                   "bot": "https://search4faces.com/",
                   "tags": ["поиск по фото", "лицо"]
+                },
+                {
+                  "name": "Yandex Images",
+                  "desc": "Поиск по картинкам от Яндекса. Работает лучше Google при поиске по лицу: точнее находит похожие фотографии людей, в том числе в соцсетях и на сайтах знакомств.",
+                  "bot": "https://yandex.com/images",
+                  "eternal": "https://yandex.com/images",
+                  "tags": ["поиск по фото", "лицо", "yandex"]
                 }
               ]
             },
@@ -113,6 +120,49 @@
                   "desc": "Сервис для получения координат по IP-адресу. Введите IP, прокрутите страницу вниз, чтобы увидеть координаты, и при желании проверьте их на Google или Яндекс Картах.",
                   "bot": "https://ipgeolocation.io/",
                   "tags": ["ip", "геолокация", "карты"]
+                }
+              ]
+            },
+            {
+              "name": "Поиск по нику",
+              "children": [
+                {
+                  "name": "WhatsMyName",
+                  "desc": "Ищет по нику на более чем 650 сайтах.",
+                  "bot": "https://whatsmyname.app",
+                  "eternal": "https://whatsmyname.app",
+                  "tags": ["ник", "username", "osint"]
+                },
+                {
+                  "name": "Instant Username Search",
+                  "desc": "Проверяет, есть ли человек с таким ником на популярных сайтах (YouTube, GitHub и др.).",
+                  "bot": "https://instantusername.com/",
+                  "eternal": "https://instantusername.com/",
+                  "tags": ["ник", "username", "соцсети"]
+                }
+              ]
+            },
+            {
+              "name": "Поиск по почте",
+              "children": [
+                {
+                  "name": "Have I Been Pwned",
+                  "desc": "Проверяет, встречается ли email в публичных утечках данных. Показывает, в каких именно сервисах и когда произошла утечка, а также какие типы данных были скомпрометированы.",
+                  "bot": "https://haveibeenpwned.com/",
+                  "eternal": "https://haveibeenpwned.com/",
+                  "tags": ["почта", "email", "утечки", "osint"]
+                }
+              ]
+            },
+            {
+              "name": "Поиск по TON кошельку",
+              "children": [
+                {
+                  "name": "TONSCAN",
+                  "desc": "Обозреватель блокчейна TON. Позволяет посмотреть баланс, историю транзакций, NFT и связи кошелька с другими адресами.",
+                  "bot": "https://tonscan.org/",
+                  "eternal": "https://tonscan.org/",
+                  "tags": ["ton", "крипта", "кошелёк", "osint"]
                 }
               ]
             }
