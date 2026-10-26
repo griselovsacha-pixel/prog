@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import secrets
+import socket
 import struct
 import time
 from collections import deque
@@ -885,27 +886,170 @@ USER_COLS = """u.tg_id, u.username, u.full_name, u.created_at,
                (select max(created_at) from visits v where v.tg_id = u.tg_id) as last_visit"""
 
 
-@app.get("/admin/api/search")
-async def admin_search(request: Request, q: str = ""):
-    guard(request)
+def user_filter(q: str) -> tuple[str, list]:
+    """WHERE-условие и параметры для поиска пользователей (пустой q — все пользователи)."""
     q = q.strip().lstrip("@")[:100]
     if not q:
-        return {"items": []}
+        return "true", []
     by_ip = """u.tg_id in (select tg_id from visits where ip {op} $1 union select tg_id from sessions where ip {op} $1
                            union select tg_id from events where ip {op} $1)"""
     if IPV4.match(q) or ":" in q:
-        rows = await pool.fetch(f"select {USER_COLS} from users u where {by_ip.format(op='=')} "
-                                "order by last_visit desc nulls last limit 30", q)
-    elif re.fullmatch(r"[\d.]+", q) and "." in q:                       # часть IP, например 91.224.
-        rows = await pool.fetch(f"select {USER_COLS} from users u where {by_ip.format(op='like')} "
-                                "order by last_visit desc nulls last limit 30", q + "%")
-    elif re.fullmatch(r"[0-9]{1,15}", q):          # isdigit() пропускает «²» и гигантские числа — отсюда были 500-е
-        rows = await pool.fetch(f"select {USER_COLS} from users u where u.tg_id = $1", int(q))
-    else:
-        esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        rows = await pool.fetch(f"select {USER_COLS} from users u where u.username ilike $1 or u.full_name ilike $2 "
-                                "order by u.created_at desc limit 30", esc + "%", "%" + esc + "%")
+        return by_ip.format(op="="), [q]
+    if re.fullmatch(r"[\d.]+", q) and "." in q:                        # часть IP, например 91.224.
+        return by_ip.format(op="like"), [q + "%"]
+    if re.fullmatch(r"[0-9]{1,15}", q):          # isdigit() пропускает «²» и гигантские числа — отсюда были 500-е
+        return "u.tg_id = $1", [int(q)]
+    esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "(u.username ilike $1 or u.full_name ilike $2)", [esc + "%", "%" + esc + "%"]
+
+
+@app.get("/admin/api/search")
+async def admin_search(request: Request, q: str = ""):
+    guard(request)
+    if not q.strip():
+        return {"items": []}
+    where, params = user_filter(q)
+    order = "last_visit desc nulls last" if "select tg_id from visits" in where else "u.created_at desc"
+    rows = await pool.fetch(f"select {USER_COLS} from users u where {where} order by {order} limit 30", *params)
     return jsonable_encoder({"items": [dict(r) for r in rows]})
+
+
+@app.get("/admin/api/users")
+async def admin_users(request: Request, q: str = "", offset: int = 0, limit: int = 30):
+    """Все пользователи из базы со сводкой по каждому (постранично; q — необязательный поиск)."""
+    guard(request)
+    offset, limit = max(0, min(offset, 10**7)), max(1, min(limit, 100))
+    where, params = user_filter(q)
+    n = len(params)
+    total = await pool.fetchval(f"select count(*) from users u where {where}", *params)
+    rows = await pool.fetch(
+        f"""select u.tg_id, u.username, u.full_name, u.created_at,
+                   (select min(created_at) from join_requests j where j.tg_id = u.tg_id) join_request_at,
+                   (select count(*) from visits v where v.tg_id = u.tg_id) visits,
+                   (select min(created_at) from visits v where v.tg_id = u.tg_id) first_visit,
+                   (select max(created_at) from visits v where v.tg_id = u.tg_id) last_visit,
+                   (select count(*) from sessions s where s.tg_id = u.tg_id) sessions,
+                   (select coalesce(sum(extract(epoch from last_seen - started_at)), 0)
+                      from sessions s where s.tg_id = u.tg_id) time_total,
+                   (select max(last_seen) from sessions s where s.tg_id = u.tg_id) last_seen,
+                   (select user_agent from sessions s where s.tg_id = u.tg_id order by started_at desc limit 1) user_agent,
+                   (select count(*) from events e where e.tg_id = u.tg_id and e.ev = 'select') tools_opened,
+                   (select count(*) from events e where e.tg_id = u.tg_id and e.ev = 'bot') bot_clicks,
+                   (select count(*) from events e where e.tg_id = u.tg_id and e.ev = 'eternal') eternal_clicks,
+                   (select count(*) from ratings r where r.tg_id = u.tg_id) ratings
+            from users u where {where} order by u.created_at desc, u.tg_id desc
+            limit ${n + 1} offset ${n + 2}""", *params, limit, offset)
+    ids = [r["tg_id"] for r in rows]
+    ips: dict[int, list] = {i: [] for i in ids}
+    if ids:
+        ip_rows = await pool.fetch(
+            """select tg_id, ip, count(*) n, max(ts) last from (
+                   select tg_id, ip, created_at ts from visits where tg_id = any($1::bigint[])
+                   union all select tg_id, ip, started_at from sessions where tg_id = any($1::bigint[])
+                   union all select tg_id, ip, created_at from events where tg_id = any($1::bigint[])
+               ) x where ip is not null and ip <> '' group by tg_id, ip order by last desc""", ids)
+        for r in ip_rows:
+            if len(ips[r["tg_id"]]) < 10:
+                ips[r["tg_id"]].append({"ip": r["ip"], "n": r["n"], "last": r["last"]})
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["time_total"] = float(d["time_total"] or 0)
+        d["ips"] = ips.get(r["tg_id"], [])
+        items.append(d)
+    return jsonable_encoder({"items": items, "total": total, "offset": offset, "limit": limit})
+
+
+# ---- проверка IP через публичные сервисы (запросы идут с сервера: браузер админки ходит только на свой домен)
+_ip_cache = sec.Bounded(500)          # ip -> (результат, годен до)
+IP_CHECKS = sec.Limiter(30, 60)       # не больше 30 проверок в минуту, сколько бы ни нажимали
+
+
+async def _get_json(sess: aiohttp.ClientSession, url: str) -> dict | None:
+    try:
+        async with sess.get(url, headers={"Accept": "application/json", "User-Agent": "harledy-admin/1.0"}) as r:
+            if r.status != 200:
+                return None
+            data = await r.json(content_type=None)
+            return data if isinstance(data, dict) else None
+    except Exception as e:
+        log.info("ip lookup %s failed: %s", url.split("?")[0].split("/")[2], type(e).__name__)
+        return None
+
+
+async def _rdns(ip: str) -> str | None:
+    try:
+        host = await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(None, lambda: socket.gethostbyaddr(ip)[0]), 3)
+        return host or None
+    except Exception:
+        return None
+
+
+def summarize_ip(ip: str, whois: dict | None, ipapi: dict | None, ipapi_com: dict | None, rdns: str | None) -> dict:
+    """Склеивает ответы сервисов в одну сводку; каждое поле берём из первого сервиса, который его вернул."""
+    w = whois if whois and whois.get("success") is not False else {}
+    a = ipapi or {}
+    c = ipapi_com if ipapi_com and ipapi_com.get("status") == "success" else {}
+    wconn, wtz = w.get("connection") or {}, w.get("timezone") or {}
+    loc, comp, asn = a.get("location") or {}, a.get("company") or {}, a.get("asn") or {}
+
+    def first(*vals):
+        return next((v for v in vals if v not in (None, "")), None)
+
+    flags = {
+        "vpn": first(a.get("is_vpn")), "proxy": first(a.get("is_proxy"), c.get("proxy")),
+        "tor": first(a.get("is_tor")), "datacenter": first(a.get("is_datacenter"), c.get("hosting")),
+        "mobile": first(a.get("is_mobile"), c.get("mobile")), "abuser": first(a.get("is_abuser")),
+    }
+    asn_num = first(wconn.get("asn"), asn.get("asn"), (c.get("as") or "").split(" ")[0].lstrip("AS") or None)
+    out = {
+        "ip": ip,
+        "country": first(w.get("country"), loc.get("country"), c.get("country")),
+        "country_code": first(w.get("country_code"), loc.get("country_code"), c.get("countryCode")),
+        "region": first(w.get("region"), loc.get("state"), c.get("regionName")),
+        "city": first(w.get("city"), loc.get("city"), c.get("city")),
+        "lat": first(w.get("latitude"), loc.get("latitude"), c.get("lat")),
+        "lon": first(w.get("longitude"), loc.get("longitude"), c.get("lon")),
+        "timezone": first(wtz.get("id"), loc.get("timezone"), c.get("timezone")),
+        "isp": first(wconn.get("isp"), comp.get("name"), c.get("isp")),
+        "org": first(wconn.get("org"), asn.get("org"), c.get("org")),
+        "asn": asn_num,
+        "company_type": first(comp.get("type"), asn.get("type")),
+        "reverse_dns": rdns,
+        "flags": {k: v for k, v in flags.items() if v is not None},
+    }
+    out["sources"] = [n for n, ok in (("ipwho.is", bool(w)), ("ipapi.is", bool(a)), ("ip-api.com", bool(c))) if ok]
+    return out
+
+
+@app.get("/admin/api/ip/{ip}")
+async def admin_ip_check(request: Request, ip: str):
+    guard(request)
+    try:
+        addr = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        raise HTTPException(400, "Некорректный IP-адрес")
+    ip = str(addr)
+    if not addr.is_global:
+        return {"ip": ip, "private": True, "error": "Это локальный/служебный адрес — в публичных сервисах его нет."}
+    hit = _ip_cache.get(ip)
+    if hit and hit[1] > time.monotonic():
+        return hit[0]
+    if not IP_CHECKS.hit("ipcheck"):
+        return JSONResponse({"error": "Слишком много проверок, подождите минуту."}, status_code=429)
+    timeout = aiohttp.ClientTimeout(total=6)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        whois, ipapi, ipapi_com, rdns = await asyncio.gather(
+            _get_json(sess, f"https://ipwho.is/{ip}"),
+            _get_json(sess, f"https://api.ipapi.is/?q={ip}"),
+            _get_json(sess, f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,regionName,city,lat,lon,timezone,isp,org,as,mobile,proxy,hosting"),
+            _rdns(ip),
+        )
+    result = summarize_ip(ip, whois, ipapi, ipapi_com, rdns)
+    if not result["sources"]:
+        return JSONResponse({"error": "Публичные сервисы сейчас недоступны. Попробуйте позже."}, status_code=502)
+    _ip_cache.put(ip, (result, time.monotonic() + 3600))
+    return result
 
 
 @app.get("/admin/api/user/{tg_id}")
