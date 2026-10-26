@@ -43,7 +43,7 @@ BTN = {
     "stars": "5958413064658228696",     # Отправить telegram stars
     "money": "5985630530111020079",     # Отправить деньги
     "tip": "5348503265967355284",         # Отправить копеечку автору
-    "cancel": "5287460356078182607",   # Отмена
+    "cancel": "5287460356078182607",   # Вернуться в главное меню
     "pay": "5352682569794069786",         # Оплатить
     "check": "5845943483382110702",       # Проверить оплату
 }
@@ -61,14 +61,13 @@ EM = {
     "f_name":    ("5879770735999717115", "✏️"),   # «Название:»
     "f_desc":    ("6006038041448156880", "📝"),   # «Описание:»
     "f_link":    ("5765071340847501478", "🔗"),   # «Ссылка:»
-    "sent":      (None, "✅"),   # «Заявка отправлена»
-    "cancelled": (None, "❌"),   # «Отменено»
+    "sent":      ("5825794181183836432", "✅"),   # «Заявка отправлена»
     "error":     ("5881702736843511327", "⚠️"),   # ошибки и подсказки
     "support":   ("5985472565508838112", "💖"),   # «Методы которыми вы можете поддержать наш проект»
     "tip":       (None, "🪙"),   # «Выберите способ»
-    "amount":    (None, "💵"),   # «Выберите сумму»
+    "amount":    ("5447580280221092028", "💵"),   # «Выберите сумму»
     "invoice":   ("5875180111744995604", "🧾"),   # сообщение со счётом
-    "paid":      (None, "🎉"),   # «Оплата получена»
+    "paid_end":  ("5352682569794069786", "💖"),   # 4 эмодзи в конце «Оплата получена»
 }
 
 # эмодзи на кнопках категорий (по названию, без учёта регистра); для остальных категорий кнопка без эмодзи
@@ -111,7 +110,7 @@ def kb(rows) -> InlineKeyboardMarkup:
 
 
 def cancel_row(rich: bool):
-    return [btn("Отмена", "cancel", "✖️", rich, callback_data="atcancel")]
+    return [btn("Вернуться в главное меню", "cancel", "🏠", rich, callback_data="atcancel")]
 
 
 async def show(msg: Message, text: str, kb_fn, edit: bool = False):
@@ -319,14 +318,16 @@ async def add_confirm(cb: CallbackQuery, state: FSMContext):
         return
     log.info("tool submission from user=%s: %r", u.id, d.get("name"))
     await cb.answer()
-    await show(cb.message, f"{em('sent')} Спасибо! Ваша заявка отправлена на рассмотрение.", lambda r: kb([]), edit=True)
+    await show(cb.message, f"{em('sent')} Заявка отправлена", lambda r: kb([]), edit=True)
 
 
 @router.callback_query(F.data == "atcancel")
 async def add_cancel(cb: CallbackQuery, state: FSMContext):
+    """«Вернуться в главное меню»: сбрасываем диалог и превращаем это сообщение обратно в меню."""
     await state.clear()
     await cb.answer()
-    await show(cb.message, f"{em('cancelled')} Отменено.", lambda r: kb([]), edit=True)
+    text, link = await D["menu_parts"](cb.from_user)
+    await show(cb.message, text, lambda r: D["menu_kb"](link, r), edit=True)
 
 
 @router.callback_query(F.data.regexp(r"^at(c:|k:|t:|ok$)"))
@@ -361,7 +362,7 @@ async def support_money(cb: CallbackQuery):
     await cb.answer()
     rows = [[InlineKeyboardButton(text=f"{a}$", callback_data=f"sp_amt:{a}") for a in AMOUNTS[:4]],
             [InlineKeyboardButton(text=f"{a}$", callback_data=f"sp_amt:{a}") for a in AMOUNTS[4:]]]
-    await show(cb.message, f"{em('amount')} Выберите сумму поддержки:", lambda r: kb(rows))
+    await show(cb.message, f"{em('amount')} Выберите сумму:", lambda r: kb(rows))
 
 
 # ---- Crypto Pay API (https://help.crypt.bot/crypto-pay-api): счёт на оплату создаём createInvoice
@@ -432,7 +433,7 @@ async def support_check(cb: CallbackQuery):
                                                                f"(счёт на {inv.get('fiat') or ''})\nОт: {e(u.full_name)} ID {u.id}"))
             except TelegramAPIError:
                 pass
-        await show(cb.message, f"{em('paid')} Оплата получена. Спасибо за поддержку проекта!", lambda r: kb([]), edit=True)
+        await show(cb.message, f"Оплата получена! Благодарим вас!!! {em('paid_end') * 4}", lambda r: kb([]), edit=True)
     elif status == "expired":
         await cb.answer("Счёт истёк. Создайте новый.", show_alert=True)
     else:
