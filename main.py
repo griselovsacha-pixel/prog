@@ -241,21 +241,24 @@ def menu_kb(link: str, icons: bool) -> InlineKeyboardMarkup:
     ])
 
 
-async def send_menu(bot: Bot, u):
+async def menu_parts(u) -> tuple[str, str]:
+    """Текст приветствия и персональная ссылка на сайт (одно и то же для /start и кнопки «Вернуться в главное меню»)."""
     token = await ensure_user(u)
     link = f"{SITE_URL}/?k={token}"
     name = html.escape(f"@{u.username}" if u.username else u.full_name)
+    text = (f"Приветствую, {name}!\n"
+            f"Сборник инструментов Harledy Project доступен по ссылке ниже {emoji(EMOJI_LINK, '👇')}\n\n"
+            "<i>Сайт желательно открывать с компьютера, так как мобильная версия может работать некорректно.</i>")
+    return text, link
+
+
+async def send_menu(bot: Bot, u):
+    text, link = await menu_parts(u)
     try:                                               # большой эмодзи отдельным сообщением — как стикер
         await bot.send_message(u.id, emoji(EMOJI_MAIN, "🔍"))
     except TelegramBadRequest:
         await bot.send_message(u.id, "🔍")
-    await send(
-        bot, u.id,
-        f"Приветствую, {name}!\n"
-        f"Сборник инструментов Harledy Project доступен по ссылке ниже {emoji(EMOJI_LINK, '👇')}\n\n"
-        "<i>Сайт желательно открывать с компьютера, так как мобильная версия может работать некорректно.</i>",
-        kb=menu_kb(link, True), kb_plain=menu_kb(link, False),
-    )
+    await send(bot, u.id, text, kb=menu_kb(link, True), kb_plain=menu_kb(link, False))
 
 
 @router.message(CommandStart())
@@ -382,7 +385,7 @@ async def lifespan(app: FastAPI):
     dp.include_router(router)
     dp.include_router(bf.router)
     bf.configure(has_access=has_access, tools_json=tools_json, admin_id=TOOL_REVIEW_CHAT, channel_id=CHANNEL_ID,
-                 channel_link=CHANNEL_LINK, crypto_token=CRYPTO_PAY_TOKEN, crypto_host=CRYPTO_PAY_HOST)
+                 channel_link=CHANNEL_LINK, menu_parts=menu_parts, menu_kb=menu_kb, crypto_token=CRYPTO_PAY_TOKEN, crypto_host=CRYPTO_PAY_HOST)
     try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
         await bot.delete_webhook(drop_pending_updates=True)
         await diagnose(bot)
