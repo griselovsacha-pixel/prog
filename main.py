@@ -214,7 +214,7 @@ def gate_kb(icons: bool) -> InlineKeyboardMarkup:
 
 
 async def send_gate(bot: Bot, chat_id: int):
-    await send(
+    await send(                                        # одно сообщение вместо двух — вдвое меньше круговых задержек до Telegram
         bot, chat_id,
         f"{emoji(EMOJI_GATE, '⚠️')} Для использования бота необходима подписка на канал!",
         kb=gate_kb(True), kb_plain=gate_kb(False),
@@ -225,13 +225,12 @@ async def send_menu(bot: Bot, u):
     token = await ensure_user(u)
     link = f"{SITE_URL}/?k={token}"
     name = html.escape(f"@{u.username}" if u.username else u.full_name)
-    await send(bot, u.id, emoji(EMOJI_MAIN, "🔍"))
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Открыть Harledy Project", url=link)]]
     )
-    await send(
+    await send(                                        # одним сообщением вместо двух — бот отвечает заметно быстрее
         bot, u.id,
-        f"Приветствую, {name}!\n"
+        f"{emoji(EMOJI_MAIN, '🔍')} Приветствую, {name}!\n"
         f"Сборник инструментов Harledy Project доступен по ссылке ниже {emoji(EMOJI_LINK, '👇')}\n\n"
         "<i>Сайт желательно открывать с компьютера, так как мобильная версия может работать некорректно.</i>",
         kb=kb,
