@@ -92,6 +92,15 @@ class ShieldTests(unittest.TestCase):
         st, _ = self.run_(call(sec, method="POST", path="/api/track", headers={"content-length": "5000"}))
         self.assertEqual(st, 413)
 
+    def test_ai_endpoint_gets_bigger_body_limit_only(self):
+        sec = load(MAX_BODY="1024")
+        st, _ = self.run_(call(sec, method="POST", path="/api/ai", headers={"content-length": "9000"}))
+        self.assertEqual(st, 200)          # вопрос + история диалога
+        st, _ = self.run_(call(sec, method="POST", path="/api/ai", headers={"content-length": "90000"}))
+        self.assertEqual(st, 413)
+        st, _ = self.run_(call(sec, method="POST", path="/api/track", headers={"content-length": "9000"}))
+        self.assertEqual(st, 413)          # остальные ручки по-прежнему 1 КБ
+
     def test_weird_content_length_does_not_crash(self):
         sec = load()
         for cl in ("²", "-1", "1e3", "99999999999999999999"):
