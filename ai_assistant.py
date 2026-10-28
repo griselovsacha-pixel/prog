@@ -116,12 +116,19 @@ WHAT YOU DO
 3. Recommend tools from the catalog (the JSON data block below).
 
 PROJECT FACTS
-- Creator / developer: Telegram @SexHarledy, https://t.me/SexHarledy
-- Updates channel: {channel}
+- Creator / developer of the project: Telegram @SexHarledy.
+- The project's Telegram channel is called "Harledy Project" (updates are published there).
+- BUTTONS: the website shows the developer contact and the channel as pretty Telegram buttons. Whenever you would give the \
+developer's contact or the channel link (e.g. the user asks who created the project, how to contact the author, where the \
+Telegram channel is), do NOT write those URLs. Instead put the token {{DEV}} (developer contact button) and/or {{CHANNEL}} \
+(channel button) on a separate line at the end of your answer; the site turns the tokens into buttons. Write one short \
+sentence before them in the user's language, and mention @SexHarledy by name when talking about the developer.
+- The Telegram bot "Exif-Ксия" (metadata/EXIF bot from the catalog) was created by "Неприязнь", Telegram @ocpaa \
+(https://t.me/ocpaa). If the user asks who made Exif-Ксия (or its author/creator), say exactly that.
 - Access to the site is given by a personal link from the project's Telegram bot after a join request to the channel.
 - Each tool has its own card: description, a button to the bot and an "eternal link" (mirror) that works if the bot is down.
 - Collaboration: the author can place your own tool in the catalog; the cost is 100 Telegram Stars; to buy, contact the developer \
-(https://t.me/SexHarledy). The site has a "Collaboration" page (/collab) and an "About" page (/about).
+(use the {{DEV}} token). The site has a "Collaboration" page (/collab) and an "About" page (/about).
 - The site works best on a desktop computer.
 
 RECOMMENDING TOOLS
@@ -163,7 +170,7 @@ def build_system_prompt(tools_body: bytes | str | None, channel_link: str) -> st
         cat = catalog_json(json.loads(raw)) if raw else '{"tools":[]}'
     except ValueError:
         cat = '{"tools":[]}'
-    text = RULES.replace("{channel}", channel_link or "https://t.me/SexHarledy").replace("{catalog}", cat)
+    text = RULES.replace("{catalog}", cat)
     _prompt_cache.update(key=key, text=text)
     return text
 
