@@ -41,8 +41,10 @@ ORIGIN_HEADER = os.environ.get("ORIGIN_SECRET_HEADER", "x-origin-secret").strip(
 # Разрешённые домены (с поддоменами). Пусто — проверка Host выключена.
 ALLOWED_HOSTS = [h.strip().lower().lstrip(".") for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
 MAX_BODY = _int_env("MAX_BODY", 4096, 256, 1_000_000)
+MAX_BODY_AI = _int_env("MAX_BODY_AI", 24576, 1024, 1_000_000)   # вопрос + история диалога для /api/ai
 MAX_INFLIGHT = _int_env("MAX_INFLIGHT", 64, 4, 1000)
 REQ_TIMEOUT = _int_env("REQ_TIMEOUT", 30, 5, 120)
+REQ_TIMEOUT_AI = _int_env("REQ_TIMEOUT_AI", 45, 10, 120)         # цепочка моделей Gemini дольше обычного запроса
 DEBUG_IP = os.environ.get("DEBUG_IP") == "1"
 HTTPS_SITE = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").startswith("https")
 EXEMPT_NETS: list = []  # сети, которые не банятся (админ); заполняет main.py
@@ -183,6 +185,7 @@ LIMITS = {
     "ping": Limiter(30, 60),
     "tools": Limiter(20, 60),
     "track": Limiter(80, 60),
+    "ai": Limiter(20, 60),
     "auth": Limiter(10, 60),
     "admin": Limiter(150, 60),
     "static": Limiter(300, 60),
@@ -196,6 +199,8 @@ def classify(path: str) -> str:
         return "tools"
     if path == "/api/track":
         return "track"
+    if path == "/api/ai":
+        return "ai"
     if path in ("/admin/api/login", "/admin/api/2fa"):
         return "auth"
     if path.startswith("/admin"):
@@ -315,9 +320,10 @@ class Shield:
                 BANS.strike(key, "bad", 30)
                 _log_limited("origin", "request without valid origin secret (direct hit?) from %s", key)
                 return await _deny(send, scope, 403, "forbidden")
+        body_cap = MAX_BODY_AI if kind == "ai" else MAX_BODY
         cl = header(scope, b"content-length")
         # isdigit() пропускает «²» и подобные символы, а int() на них падает: проверяем только ASCII-цифры
-        if cl and (not (cl.isascii() and cl.isdigit()) or len(cl) > 9 or int(cl) > MAX_BODY):
+        if cl and (not (cl.isascii() and cl.isdigit()) or len(cl) > 9 or int(cl) > body_cap):
             BANS.strike(key, "bad", 30)
             return await _deny(send, scope, 413, "payload too large")
         if not LIMITS[kind].hit(key):
@@ -337,7 +343,7 @@ class Shield:
             m = await receive()
             if m["type"] == "http.request":       # тело без Content-Length (chunked) тоже ограничиваем
                 got += len(m.get("body", b""))
-                if got > MAX_BODY:
+                if got > body_cap:
                     return {"type": "http.request", "body": b"", "more_body": False}
             return m
 
@@ -350,7 +356,7 @@ class Shield:
 
         self.inflight += 1
         try:
-            await asyncio.wait_for(self.app(scope, recv, out), REQ_TIMEOUT)
+            await asyncio.wait_for(self.app(scope, recv, out), REQ_TIMEOUT_AI if kind == "ai" else REQ_TIMEOUT)
         except asyncio.TimeoutError:
             _log_limited("timeout", "request timeout on %s", path)
             if not started:
