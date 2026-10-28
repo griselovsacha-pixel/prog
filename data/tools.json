@@ -9,101 +9,251 @@
           "children": [
             {
               "name": "Sherlock",
-              "desc": "Telegram-бот для поиска информации с одной из крупнейших баз данных. Новым пользователям доступно 3 бесплатных запроса, далее — 1 в сутки.",
+              "desc": "Telegram-бот для поиска информации с одной из крупнейших баз данных. Каждый день доступны бесплатные запросы.",
               "bot": "https://t.me/ghost0723r4w_bot?start=_ref_4CMrsiqAk_fiMoWifjn",
               "eternal": "https://736865726c6f636b.com/#4CMrsiqAk_fiMoWifjn",
-              "tags": ["username", "соцсети"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Ежедневно бесплатные запросы",
+              "vpn": "no",
+              "web": true,
+              "tags": [
+                "username",
+                "соцсети"
+              ]
             },
             {
               "name": "Vector",
-              "desc": "Сайт и Telegram-бот с собственным API. Ищет по ФИО, госномеру, VIN, телефону, почте, Telegram, паспорту, ИНН, СНИЛС и ОГРН. Есть платный поиск по лицу.",
+              "desc": "Сайт и Telegram-бот с собственным API. Ищет по ФИО, госномеру, VIN, телефону, почте, Telegram, паспорту, ИНН, СНИЛС и ОГРН. Часть запросов бесплатна, поиск по лицу — платный.",
               "bot": "https://vekbot.is/",
               "eternal": "https://vektor.cool/?start=r_jzJSuO1MgN",
-              "tags": ["osint", "номер телефона", "ФИО", "авто", "документы", "поиск по лицу"]
+              "type": "bot+site",
+              "price": "freemium",
+              "price_text": "Бесплатные запросы",
+              "vpn": "no",
+              "web": true,
+              "extra": [
+                {
+                  "k": "reg",
+                  "t": "Требует регистрацию (сайт)"
+                },
+                {
+                  "k": "api",
+                  "t": "Требует API-ключ (опционально)"
+                }
+              ],
+              "tags": [
+                "osint",
+                "номер телефона",
+                "ФИО",
+                "авто",
+                "документы",
+                "поиск по лицу"
+              ]
             },
             {
               "name": "Void",
-              "desc": "Telegram-бот «Глаз Бога», аналог Sherlock. Качественно ищет по номеру телефона: имена, фото, объявления, соцсети. Даёт 2 бесплатных запроса при регистрации.",
+              "desc": "Telegram-бот «Глаз Бога», аналог Sherlock. Качественно ищет по номеру телефона: имена, фото, объявления, соцсети. Даёт 3 бесплатных запроса, ещё +1 — за каждого приглашённого реферала.",
               "bot": "https://t.me/jdksosjvbot?start=XX9AXxJgVNo0",
               "eternal": "https://glaz.gg/#XX9AXxJgVNo0",
-              "tags": ["osint", "номер телефона"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "3 бесплатных, +1 за реферала",
+              "vpn": "no",
+              "aka": [
+                "Глаз Бога"
+              ],
+              "tags": [
+                "osint",
+                "номер телефона"
+              ]
             },
             {
               "name": "Black Cat",
-              "desc": "Бот для поиска по телефону, ФИО, email и юзернейму. Проверяет профили в Telegram, ВК, ОК, WhatsApp, Instagram и базах утечек. Работает без ограничений по числу запросов.",
+              "desc": "Бот для поиска по телефону, ФИО, email и юзернейму. Проверяет профили в Telegram, ВК, ОК, WhatsApp, Instagram и базах утечек.",
               "bot": "https://t.me/openclaw_analis_bot?start=ref_8521863420",
               "eternal": "https://t.me/overlordoor",
-              "tags": ["osint", "номер телефона", "ФИО", "email", "username"]
+              "type": "bot",
+              "price": "unknown",
+              "price_text": "Данные не заполнены",
+              "vpn": "unknown",
+              "vpn_text": "Данные не заполнены",
+              "tags": [
+                "osint",
+                "номер телефона",
+                "ФИО",
+                "email",
+                "username"
+              ]
             },
             {
               "name": "Максонов search",
               "desc": "Многофункциональный бот для пробива. Ищет по нику, IP, email, пастам, Telegram и ВК. Делает HLR-запросы, анализирует TON-кошельки и проверяет юрлица по базе ФНС.",
               "bot": "https://t.me/tullkmaksonovrobot?start=ref_PQCkjLTK",
               "eternal": "https://t.me/+UrUj9XRPHyRhMTRi",
-              "tags": ["osint", "пробив", "ВК", "ФНС", "IP", "крипта"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Ежедневно бесплатные запросы",
+              "vpn": "no",
+              "extra": [
+                {
+                  "k": "limit",
+                  "t": "Только для Telegram (нужен свой бот)"
+                }
+              ],
+              "tags": [
+                "osint",
+                "пробив",
+                "ВК",
+                "ФНС",
+                "IP",
+                "крипта"
+              ]
             },
             {
               "name": "Духless",
               "desc": "Бот для комплексного поиска: один запрос — один развёрнутый ответ. Поддерживает поиск по телефону, авто, нику, ФИО, email и фото. Есть спецкоманды: /inn, /ip, /vin, /snils, /address.",
               "bot": "https://t.me/probito_nomerak_usc_bot?start=r_RHURCGR7N7",
               "eternal": "https://dyx.ink?r=RHURCGR7N7",
-              "tags": ["osint", "номер телефона", "ФИО", "авто", "фото", "ИНН", "IP"]
+              "type": "bot",
+              "price": "paid",
+              "price_text": "Платно",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "номер телефона",
+                "ФИО",
+                "авто",
+                "фото",
+                "ИНН",
+                "IP"
+              ]
             },
             {
               "name": "Lols Bot",
               "desc": "Показывает подробную информацию о любом Telegram-аккаунте: статистику спам-репортов, активность и историю смены имён и юзернеймов. Удобен для быстрой проверки подозрительного контакта.",
               "bot": "https://t.me/lolsBotCatcherBot",
               "eternal": "https://t.me/lolsBotCatcherBot",
-              "tags": ["telegram", "статистика", "анализ"]
+              "type": "bot",
+              "price": "free",
+              "price_text": "Бесплатно",
+              "vpn": "no",
+              "tags": [
+                "telegram",
+                "статистика",
+                "анализ"
+              ]
             },
             {
               "name": "Prerecon",
               "desc": "OSINT-инструмент для поиска по нику сразу по трём разным источникам, а также для проверки электронной почты на валидность и существование.",
               "bot": "https://t.me/Prerecpnjsjdjdj_bot",
               "eternal": "https://t.me/Prerecpnjsjdjdj_bot",
-              "tags": ["osint", "ник", "email", "валидность"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Ежедневно бесплатные запросы + платные функции",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "ник",
+                "email",
+                "валидность"
+              ]
             },
             {
               "name": "Leak Osint",
               "desc": "Один из самых мощных инструментов с множеством подключённых баз данных. Если бот сообщает о недоступности в России, смените язык интерфейса на украинский, скройте номер телефона в настройках Telegram и попробуйте снова.",
               "bot": "https://t.me/Deleted_w2robot?start=FNVl0lY",
               "eternal": "https://t.me/sartxriosbot?start=FNVl0lY",
-              "tags": ["osint", "утечки", "базы"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Бесплатные запросы",
+              "vpn": "yes",
+              "vpn_text": "Нужен VPN",
+              "note": "Доступ из Украины; бот блокирует при русском номере или языке интерфейса.",
+              "tags": [
+                "osint",
+                "утечки",
+                "базы"
+              ]
             },
             {
               "name": "Onux",
               "desc": "Поиск данных в разных реестрах. Поддерживает множество типов запросов.",
               "bot": "https://t.me/who_aibot",
               "eternal": "https://t.me/who_aibot",
-              "tags": ["osint", "реестры", "поиск данных"]
+              "type": "bot+miniapp",
+              "price": "freemium",
+              "price_text": "Ежедневно бесплатные запросы",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "реестры",
+                "поиск данных"
+              ]
             },
             {
               "name": "DOZOR",
               "desc": "Универсальный бот для поиска информации о людях. Актуальное зеркало — на do-zor.com.",
               "bot": "https://t.me/cyberbot0verl04dbot?start=r_8521863420",
               "eternal": "https://do-zor.com/",
-              "tags": ["osint", "поиск людей", "пробив"]
+              "type": "bot",
+              "price": "paid",
+              "price_text": "Платно",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "поиск людей",
+                "пробив"
+              ]
             },
             {
               "name": "XwerTool",
               "desc": "Многофункциональный OSINT-бот. Поддерживает детализированный поиск по ФИО, email, телефону, VIN, авто, паспортам, ИНН, СНИЛС, кадастровому номеру и Telegram.",
               "bot": "https://t.me/xwertool_robot",
               "eternal": "https://t.me/XwerTool",
-              "tags": ["osint", "пробив", "документы", "ФИО"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Бесплатные запросы",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "пробив",
+                "документы",
+                "ФИО"
+              ]
             },
             {
               "name": "Черный Крест",
               "desc": "Мультитул для анализа и пробива. Включает поиск по базам, бомбер, информацию об IP и юзернейму, IP-логгер, поиск по времени, извлечение EXIF-данных и таблицы.",
               "bot": "https://t.me/chernyi_krestik_bot?start=ODUyMTg2MzQyMA",
               "eternal": "https://t.me/+A9Gp1unoBvc0MGVi",
-              "tags": ["osint", "пробив", "бомбер", "ip", "exif"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Бесплатные + платный премиум",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "пробив",
+                "бомбер",
+                "ip",
+                "exif"
+              ]
             },
             {
               "name": "Maigret",
               "desc": "Поиск цифрового следа по юзернейму. Проверяет аккаунты на множестве платформ и выдаёт рекомендации по защите приватности.",
               "bot": "https://t.me/maigret_search_protection_bot",
               "eternal": "https://bit.ly/maigret-osint",
-              "tags": ["osint", "username", "цифровой след"]
+              "type": "bot",
+              "price": "free",
+              "price_text": "Бесплатно",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "username",
+                "цифровой след"
+              ]
             }
           ]
         },
@@ -117,26 +267,58 @@
                   "name": "PimEyes",
                   "desc": "Платформа для поиска лиц на фотографиях по открытым источникам интернета. Загружаете снимок — сервис находит страницы и фото, где встречается то же лицо.",
                   "bot": "https://pimeyes.com/en",
-                  "tags": ["поиск по фото", "лицо"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "поиск по фото",
+                    "лицо"
+                  ]
                 },
                 {
                   "name": "TinEye",
                   "desc": "Поисковик по изображениям для нахождения оригинальных источников и похожих картинок в сети — полезен, чтобы проверить происхождение фотографии.",
                   "bot": "https://tineye.com/",
-                  "tags": ["поиск по фото", "изображения"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "поиск по фото",
+                    "изображения"
+                  ]
                 },
                 {
                   "name": "Search Faces",
                   "desc": "Поиск людей по фотографии лица через открытые базы данных, включая соцсети.",
                   "bot": "https://search4faces.com/",
-                  "tags": ["поиск по фото", "лицо"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "yes",
+                  "vpn_text": "Требует VPN",
+                  "tags": [
+                    "поиск по фото",
+                    "лицо"
+                  ]
                 },
                 {
                   "name": "Yandex Images",
                   "desc": "Поиск по картинкам от Яндекса. Работает лучше Google при поиске по лицу: точнее находит похожие фотографии людей, в том числе в соцсетях и на сайтах знакомств.",
                   "bot": "https://yandex.com/images",
                   "eternal": "https://yandex.com/images",
-                  "tags": ["поиск по фото", "лицо", "yandex"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "yes",
+                  "vpn_text": "Требует VPN",
+                  "note": "Требуется VPN при доступе из Украины.",
+                  "tags": [
+                    "поиск по фото",
+                    "лицо",
+                    "yandex"
+                  ]
                 }
               ]
             },
@@ -147,7 +329,15 @@
                   "name": "IP Geolocation",
                   "desc": "Сервис для получения координат по IP-адресу. Введите IP, прокрутите страницу вниз, чтобы увидеть координаты, и при желании проверьте их на Google или Яндекс Картах.",
                   "bot": "https://ipgeolocation.io/",
-                  "tags": ["ip", "геолокация", "карты"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "ip",
+                    "геолокация",
+                    "карты"
+                  ]
                 }
               ]
             },
@@ -159,14 +349,30 @@
                   "desc": "Ищет по нику на более чем 650 сайтах.",
                   "bot": "https://whatsmyname.app",
                   "eternal": "https://whatsmyname.app",
-                  "tags": ["ник", "username", "osint"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "ник",
+                    "username",
+                    "osint"
+                  ]
                 },
                 {
                   "name": "Instant Username Search",
                   "desc": "Проверяет, есть ли человек с таким ником на популярных сайтах (YouTube, GitHub и др.).",
                   "bot": "https://instantusername.com/",
                   "eternal": "https://instantusername.com/",
-                  "tags": ["ник", "username", "соцсети"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "ник",
+                    "username",
+                    "соцсети"
+                  ]
                 }
               ]
             },
@@ -178,7 +384,16 @@
                   "desc": "Проверяет, встречается ли email в публичных утечках данных. Показывает, в каких именно сервисах и когда произошла утечка, а также какие типы данных были скомпрометированы.",
                   "bot": "https://haveibeenpwned.com/",
                   "eternal": "https://haveibeenpwned.com/",
-                  "tags": ["почта", "email", "утечки", "osint"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "почта",
+                    "email",
+                    "утечки",
+                    "osint"
+                  ]
                 }
               ]
             },
@@ -190,14 +405,32 @@
                   "desc": "Обозреватель блокчейна TON. Позволяет посмотреть баланс, историю транзакций, NFT и связи кошелька с другими адресами.",
                   "bot": "https://tonscan.org/",
                   "eternal": "https://tonscan.org/",
-                  "tags": ["ton", "крипта", "кошелёк", "osint"]
+                  "type": "site",
+                  "price": "free",
+                  "price_text": "Free",
+                  "vpn": "no",
+                  "tags": [
+                    "ton",
+                    "крипта",
+                    "кошелёк",
+                    "osint"
+                  ]
                 },
                 {
                   "name": "Sledopyt AML",
                   "desc": "Бот для AML-проверки TON-кошельков. Показывает связи адресов, историю транзакций, проверяет токены и NFT на подделку, а также помогает отследить украденные средства.",
                   "bot": "https://t.me/Sledopyt_aml_bot",
                   "eternal": "https://t.me/Sledopyt_aml_bot",
-                  "tags": ["ton", "aml", "крипта", "безопасность"]
+                  "type": "bot",
+                  "price": "freemium",
+                  "price_text": "Частично бесплатно + платное",
+                  "vpn": "no",
+                  "tags": [
+                    "ton",
+                    "aml",
+                    "крипта",
+                    "безопасность"
+                  ]
                 }
               ]
             }
@@ -213,7 +446,14 @@
           "desc": "Классический Telegram-бот для логирования и перехвата данных. Предназначен для сбора и анализа информации о том, кто перешёл по вашей ссылке.",
           "bot": "https://t.me/Zer1xLogerBot",
           "eternal": "https://t.me/rendymirrors",
-          "tags": ["logger", "ip"]
+          "type": "bot",
+          "price": "free",
+          "price_text": "Free",
+          "vpn": "no",
+          "tags": [
+            "logger",
+            "ip"
+          ]
         }
       ]
     },
@@ -225,31 +465,38 @@
           "desc": "Бот для сноса аккаунтов, чатов и каналов. Работает через сессии, email и поиск по юзернейму, умеет сносить спам-ботов. Подаёт жалобы через регуляторов (AU Report, TIDA, DSA) и сбрасывает активные сессии.",
           "bot": "https://t.me/jdhxjsnxjsjxs_bot?start=ref_880628963",
           "eternal": "https://embersnos.com",
-          "tags": ["snoser", "снос аккаунтов", "жалобы", "Telegram"]
+          "type": "bot+site",
+          "price": "paid",
+          "price_text": "Платно (доступ за рефералов)",
+          "vpn": "no",
+          "tags": [
+            "snoser",
+            "снос аккаунтов",
+            "жалобы",
+            "Telegram"
+          ]
         },
         {
           "name": "Rendy Snos",
           "desc": "Классический бот для массового сноса аккаунтов, каналов и ботов. Подаёт жалобы и отправляет анонимные обращения в поддержку Telegram.",
           "bot": "https://t.me/sbask_bot?start=8521863420",
           "eternal": "https://rendy.cc/bot",
-          "tags": ["snoser", "снос аккаунтов", "жалобы", "Telegram"]
+          "type": "bot+site",
+          "price": "paid",
+          "price_text": "Платно (доступ за рефералов)",
+          "vpn": "no",
+          "tags": [
+            "snoser",
+            "снос аккаунтов",
+            "жалобы",
+            "Telegram"
+          ]
         }
       ]
     },
     {
       "name": "Bombers",
       "children": [
-        {
-          "name": "Бомберы",
-          "children": [
-            {
-              "name": "DarkBomber",
-              "desc": "Инструмент для массовой отправки SMS-сообщений и совершения звонков на заданный номер телефона.",
-              "bot": "https://t.me/DarkBomberBot",
-              "tags": ["бомбер", "sms", "звонки"]
-            }
-          ]
-        },
         {
           "name": "Пранк звонки",
           "children": [
@@ -258,7 +505,15 @@
               "desc": "Позволяет бесплатно отправить пранк-звонок на любой номер РФ. Если звонок не дошёл, запрос автоматически возвращается, и его можно отправить снова.",
               "bot": "https://t.me/PrankNumbBot",
               "eternal": "https://t.me/ReservePrank",
-              "tags": ["пранк", "звонки", "рф"]
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "1 бесплатный пранк-звонок",
+              "vpn": "no",
+              "tags": [
+                "пранк",
+                "звонки",
+                "рф"
+              ]
             }
           ]
         }
@@ -272,15 +527,40 @@
           "children": [
             {
               "name": "smsc.ru",
-              "desc": "Позволяет проверить, доступен ли номер телефона, и получить дополнительные данные о нём (HLR-запрос). Если вы не из России, потребуется VPN.",
+              "desc": "Позволяет проверить, доступен ли номер телефона, и получить дополнительные данные о нём (HLR-запрос). Сайт недоступен в Украине — потребуется VPN.",
               "bot": "https://smsc.ru/testhlr/",
-              "tags": ["телефон", "hlr", "валидность"]
+              "type": "site",
+              "price": "free",
+              "price_text": "Free",
+              "vpn": "yes",
+              "vpn_text": "Нужен VPN",
+              "note": "Сайт недоступен в Украине.",
+              "tags": [
+                "телефон",
+                "hlr",
+                "валидность"
+              ]
             },
             {
               "name": "Epieos",
               "desc": "Проверка номера телефона по открытым базам данных: какие сервисы с ним связаны.",
               "bot": "https://epieos.com/",
-              "tags": ["телефон", "osint"]
+              "type": "site",
+              "price": "free",
+              "price_text": "Free",
+              "vpn": "no",
+              "extra": [
+                {
+                  "k": "reg",
+                  "t": "Требует регистрацию"
+                }
+              ],
+              "tags": [
+                "телефон",
+                "osint",
+                "почта",
+                "email"
+              ]
             }
           ]
         },
@@ -291,7 +571,22 @@
               "name": "Epieos",
               "desc": "Проверка почты и поиск связанных с ней аккаунтов по открытым источникам.",
               "bot": "https://epieos.com/",
-              "tags": ["почта", "email", "osint"]
+              "type": "site",
+              "price": "free",
+              "price_text": "Free",
+              "vpn": "no",
+              "extra": [
+                {
+                  "k": "reg",
+                  "t": "Требует регистрацию"
+                }
+              ],
+              "tags": [
+                "телефон",
+                "osint",
+                "почта",
+                "email"
+              ]
             }
           ]
         }
@@ -304,7 +599,15 @@
           "name": "Exif-Ксия",
           "desc": "Бот извлекает метаданные (EXIF) из фотографий: модель камеры, дату съёмки и, если не удалены, координаты места съёмки.",
           "bot": "https://t.me/exifksia_bot",
-          "tags": ["метаданные", "exif", "фото"]
+          "type": "bot",
+          "price": "free",
+          "price_text": "Free",
+          "vpn": "no",
+          "tags": [
+            "метаданные",
+            "exif",
+            "фото"
+          ]
         }
       ]
     },
@@ -316,16 +619,36 @@
           "desc": "Выдаёт всю историю профиля ВК за последний год.",
           "bot": "https://t.me/VKInfoRobot",
           "eternal": "https://t.me/VKInfoRobot",
-          "tags": ["вк", "история", "профиль"]
+          "type": "bot",
+          "price": "free",
+          "price_text": "Free",
+          "vpn": "no",
+          "tags": [
+            "вк",
+            "история",
+            "профиль"
+          ]
         },
         {
           "name": "220VK",
           "desc": "Сервис для анализа страницы ВК: определяет средний возраст друзей, скрытых друзей, города друзей и дату регистрации.",
           "bot": "https://old.220vk.com/",
           "eternal": "https://old.220vk.com/",
-          "tags": ["вк", "анализ", "друзья"]
+          "type": "site",
+          "price": "free",
+          "price_text": "Free",
+          "vpn": "no",
+          "tags": [
+            "вк",
+            "анализ",
+            "друзья"
+          ]
         }
       ]
+    },
+    {
+      "name": "Сервисы для покупки аккаунтов",
+      "children": []
     }
   ]
 }
