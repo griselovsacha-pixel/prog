@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harledy Project — сборник инструментов</title>
-<link rel="stylesheet" href="/style.css?v=7">
+<link rel="stylesheet" href="/style.css?v=8">
 </head>
 <body class="intro">
 <div id="hud" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
@@ -27,6 +27,17 @@
   <a id="navAi" href="/ai">AI</a>
 </nav>
 <button id="theme" type="button">Light Mode</button>
+<div id="search" role="search" hidden>
+  <div class="sbox">
+    <label class="sfield">
+      <svg class="sico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <input id="q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100" placeholder="Поиск: инструмент, тег или категория…" aria-label="Поиск по каталогу" role="combobox" aria-expanded="false" aria-controls="sres" aria-autocomplete="list">
+      <button id="qclear" type="button" aria-label="Очистить поиск" hidden>&times;</button>
+    </label>
+    <a id="aiBtn" href="/ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/></svg>Harledy AI</a>
+  </div>
+  <div id="sres" role="listbox" hidden></div>
+</div>
 
 <svg id="tree" role="img" aria-label="Дерево инструментов"></svg>
 <div id="zoom">
@@ -59,6 +70,7 @@
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="/app.js?v=7"></script>
+<script src="/search.js?v=8"></script>
+<script src="/app.js?v=8"></script>
 </body>
 </html>
