@@ -50,6 +50,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]  # Supabase pooler URL (порт 6543)
 SITE_URL = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
 DB_SSL = os.environ.get("DB_SSL", "require").strip().lower()
 CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/+X8s2DkoSD7M3MTc6")
+DEV_LINK = os.environ.get("DEV_LINK", "https://t.me/SexHarledy")      # кнопка «Контакт разработчика» на /ai
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or -1004319976611)  # переменная окружения, если задана, главнее
 BASE = Path(__file__).parent
 # Telegram ID владельцев: только им бот отвечает ID канала на пересланный пост
@@ -556,7 +557,8 @@ async def ai_ask(request: Request, b: AiReq):
         res = await assistant.answer(b.q, b.history, tools_json())
     if not res["answer"]:
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
-    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"]}, headers=NOSTORE)
+    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"],
+                         "links": {"dev": DEV_LINK, "channel": CHANNEL_LINK}}, headers=NOSTORE)
 
 
 TOOL_RE = re.compile(r"[^\x00-\x1f\x7f<>]{1,200}")   # название инструмента: без управляющих символов и <>
