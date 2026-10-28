@@ -154,10 +154,35 @@ function onNode(d) {
   update(d);
 }
 
+// ---- бирки инструмента (тип, цена, VPN, веб-версия, регистрация и т.д.)
+const TYPE_LABEL = { bot: 'Бот', site: 'Сайт', 'bot+site': 'Бот + сайт', 'bot+miniapp': 'Бот + мини-приложение' };
+const PRICE_LABEL = { free: 'Бесплатно', freemium: 'Есть бесплатные запросы', paid: 'Платно', unknown: 'Данные не заполнены' };
+const PRICE_CLASS = { free: 'ok', freemium: 'ok', paid: 'warn', unknown: 'mute' };
+const VPN_LABEL = { no: 'Работает без VPN', yes: 'Нужен VPN', unknown: 'Данные не заполнены' };
+const VPN_CLASS = { no: 'ok', yes: 'bad', unknown: 'mute' };
+function toolBadges(t) {
+  const out = [];
+  if (TYPE_LABEL[t.type]) out.push(['type', TYPE_LABEL[t.type]]);
+  if (t.price) out.push([PRICE_CLASS[t.price] || 'mute', t.price_text || PRICE_LABEL[t.price] || '']);
+  if (t.vpn) out.push([VPN_CLASS[t.vpn] || 'mute', t.vpn_text || VPN_LABEL[t.vpn] || '']);
+  if (t.web === true) out.push(['info', 'Есть веб-версия']);
+  (Array.isArray(t.extra) ? t.extra : []).forEach(x => x && x.t && out.push([x.k === 'reg' ? 'info' : 'neutral', String(x.t)]));
+  return out.filter(b => b[1]);
+}
+// пустые категории (например, будущий раздел без инструментов) на сайте не показываем
+function prune(n) {
+  if (!n || !Array.isArray(n.children)) return n;
+  const kids = n.children.map(prune).filter(c => c && (!Array.isArray(c.children) || c.children.length));
+  return { ...n, children: kids };
+}
+
 function showPanel(d) {
   $('crumb').textContent = d.ancestors().reverse().slice(1, -1).map(n => n.data.name).join(' › ');
   $('ptitle').textContent = d.data.name;
   $('pdesc').textContent = d.data.desc || '';
+  $('pbadges').replaceChildren(...toolBadges(d.data).map(([k, txt]) =>
+    Object.assign(document.createElement('span'), { className: 'bd ' + k, textContent: txt })));
+  if (d.data.note) $('pbadges').append(Object.assign(document.createElement('small'), { className: 'bnote', textContent: d.data.note }));
   $('pbody').scrollTop = 0;
   $('ptags').replaceChildren(...(d.data.tags || []).map(t =>
     Object.assign(document.createElement('span'), { textContent: t })));
@@ -206,7 +231,7 @@ $('zoomFit').onclick = () => root && update(root);
 svg.on('dblclick', e => { if (e.target === svg.node()) svg.transition().duration(260).call(zoom.scaleBy, 1.6, d3.pointer(e)); });
 
 function init(data) {
-  root = d3.hierarchy(data);
+  root = d3.hierarchy(prune(data));
   root.each(d => { d.id = ++uid; d.w = measure(d.data.name); });
   const nTools = root.leaves().length, nCats = root.descendants().length - nTools - 1;
   closeDeep(root);
