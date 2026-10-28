@@ -131,6 +131,21 @@ body.intro #nav,body.intro #theme{opacity:0;pointer-events:none}
 #ptags{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;padding-bottom:6px}
 #ptags span{border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:13px}
 
+/* ---- бирки инструмента ---- */
+#pbadges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+#pbadges:empty{display:none}
+.bd{border:1px solid var(--line);border-radius:6px;padding:2px 9px;font-size:12px;line-height:1.5;color:var(--fg)}
+.bd.type{color:var(--accent);border-color:var(--accent)}
+.bd.ok{color:#5fb98a;border-color:rgba(95,185,138,.45)}
+.bd.warn{color:#d9a441;border-color:rgba(217,164,65,.45)}
+.bd.bad{color:#e0706a;border-color:rgba(224,112,106,.45)}
+.bd.info{color:var(--accent);border-color:var(--line)}
+.bd.mute{color:var(--mute);border-style:dashed}
+:root[data-theme="light"] .bd.ok{color:#2b7a52}
+:root[data-theme="light"] .bd.warn{color:#9a6a0e}
+:root[data-theme="light"] .bd.bad{color:#b8433d}
+.bnote{flex-basis:100%;font-size:12px;line-height:1.5;color:var(--mute)}
+
 /* ---- рейтинг инструмента: звёзды ---- */
 #prating{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
 .stars-avg{position:relative;display:inline-block;font-size:17px;line-height:1;letter-spacing:2px;vertical-align:middle}
