@@ -41,6 +41,7 @@ const ctx = document.createElement('canvas').getContext('2d');
 const layout = d3.tree().nodeSize([ROW, 1]);
 
 let root, uid = 0, first = true, panelOpen = false;
+let selNode = null, foundNode = null, foundIds = new Set();   // выбранный в карточке узел и найденный через поиск путь
 let RATINGS = {};
 
 const zoom = d3.zoom()
@@ -73,7 +74,7 @@ function highlight(d) {
 
 function fit(nodes) {
   const W = svg.node().clientWidth - (panelOpen && innerWidth > 760 ? PANEL_W : 0);
-  const H = svg.node().clientHeight, TOP = 128, BOT = 50, PADX = 50;
+  const H = svg.node().clientHeight, TOP = innerWidth <= 700 ? 176 : 152, BOT = 50, PADX = 50;
   const minX = d3.min(nodes, d => d.px - GAPL - d.w - 12);
   const maxX = d3.max(nodes, d => d.px + R + 12);
   const minY = d3.min(nodes, d => d.py) - 24, maxY = d3.max(nodes, d => d.py) + 24;
@@ -114,7 +115,8 @@ function update(src) {
   enter.append('text').attr('x', -GAPL).attr('dy', '0.35em').text(d => d.data.name);
 
   const all = enter.merge(node);
-  all.classed('leaf', isLeaf).classed('open', d => !!d.children);
+  all.classed('leaf', isLeaf).classed('open', d => !!d.children)
+    .classed('sel', d => d === selNode).classed('pth', d => foundIds.has(d.id)).classed('tgt', d => d === foundNode);
   tr(all, d => (entered.has(d.id) ? stagger(d) : 0)).attr('transform', at).attr('opacity', 1);
 
   node.exit().transition().duration(DUR).ease(EASE)
@@ -133,6 +135,7 @@ function update(src) {
     .attr('cx', d => (first ? tx(d) : zx)).attr('cy', d => (first ? ty(d) : zy));
 
   const lkAll = lkEnter.merge(lk);
+  lkAll.classed('pth', l => foundIds.has(l.target.id));
   const ldelay = d => (entered.has(d.target.id) ? stagger(d.target) : 0);
   tr(lkAll.select('path'), ldelay).attr('d', path);
   tr(lkAll.select('circle'), ldelay).attr('cx', tx).attr('cy', ty);
@@ -176,6 +179,33 @@ function prune(n) {
   return { ...n, children: kids };
 }
 
+// ---- поиск: раскрыть путь к узлу и подсветить его
+const leafCount = n => (n.children && n.children.length ? n.children.reduce((s, c) => s + leafCount(c), 0) : 1);
+const openDeep = n => { open(n); (n.children || []).forEach(openDeep); };
+function clearFound() {
+  foundNode = null; foundIds = new Set();
+  nodeG.selectAll('g.node').classed('pth', false).classed('tgt', false);
+  linkG.selectAll('g.lk').classed('pth', false);
+}
+function revealNode(d) {
+  if (!d || !root) return;
+  const path = d.ancestors().reverse();                          // корень … найденный узел
+  const on = new Set(path.map(n => n.id));
+  // лишние раскрытые ветки рядом с путём сворачиваем, чтобы путь был виден чётко
+  path.forEach(a => (a.children || a._children || []).forEach(c => { if (!on.has(c.id)) closeDeep(c); }));
+  path.slice(0, -1).forEach(open);
+  if (!isLeaf(d)) {                                               // категория: показываем, что внутри
+    closeDeep(d);
+    if (leafCount(d.data) <= 14) openDeep(d); else open(d);
+  }
+  foundIds = on; foundNode = d;
+  $('hint').classList.add('gone');
+  if (isLeaf(d)) showPanel(d);                                    // открывает карточку и перерисовывает дерево
+  else if (panelOpen) togglePanel(false);
+  else update(root);
+}
+window.revealNode = revealNode; window.clearFound = clearFound;
+
 function showPanel(d) {
   $('crumb').textContent = d.ancestors().reverse().slice(1, -1).map(n => n.data.name).join(' › ');
   $('ptitle').textContent = d.data.name;
@@ -196,6 +226,7 @@ function showPanel(d) {
   if (showEternal) { $('btnEternal').href = eternal; $('btnEternal').textContent = bTg ? 'Вечная ссылка' : 'Зеркало'; }
   $('pfootNote').hidden = !showEternal;
   if (showEternal) $('pfootNote').textContent = bTg ? 'Вечная ссылка работает, если бот неактивен.' : 'Зеркало работает, если основной адрес недоступен.';
+  selNode = d;
   nodeG.selectAll('g.node').classed('sel', n => n === d);
   curTool = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › ');
   track('select', curTool);
@@ -209,7 +240,8 @@ function togglePanel(on) {
   panelOpen = on;
   $('panel').classList.toggle('open', on);
   $('panel').setAttribute('aria-hidden', String(!on));
-  if (!on) nodeG.selectAll('g.node').classed('sel', false);
+  document.body.classList.toggle('panel-open', on);
+  if (!on) { selNode = null; nodeG.selectAll('g.node').classed('sel', false); }
   update(root);
 }
 
@@ -234,12 +266,13 @@ function init(data) {
   root = d3.hierarchy(prune(data));
   root.each(d => { d.id = ++uid; d.w = measure(d.data.name); });
   const nTools = root.leaves().length, nCats = root.descendants().length - nTools - 1;
+  try { window.HSearch && HSearch.build(root); } catch (e) { console.error('search index', e); }   // индекс строим, пока все ветки раскрыты
   closeDeep(root);
   root.ox = root.oy = 0;
   update(root);                                  // сначала сразу виден только корень
   showStats(nTools, nCats);
   $('hint').textContent = 'Нажимайте на кружки, чтобы раскрывать ветки';
-  setTimeout(() => { open(root); update(root); }, 450);   // и он сам раскрывается
+  setTimeout(() => { open(root); update(root); try { window.HSearch && HSearch.show(); } catch (e) {} }, 450);   // и он сам раскрывается
 }
 
 $('btnBot').addEventListener('click', () => track('bot', curTool));
@@ -247,7 +280,7 @@ $('btnBot').addEventListener('auxclick', () => track('bot', curTool));
 $('btnEternal').addEventListener('click', () => track('eternal', curTool));
 $('btnEternal').addEventListener('auxclick', () => track('eternal', curTool));
 $('close').onclick = () => togglePanel(false);
-svg.on('click', () => panelOpen && togglePanel(false));
+svg.on('click', () => { if (panelOpen) togglePanel(false); else clearFound(); });
 addEventListener('keydown', e => e.key === 'Escape' && panelOpen && togglePanel(false));
 addEventListener('resize', () => root && update(root));
 
