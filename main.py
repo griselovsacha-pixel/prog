@@ -37,6 +37,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import ai_assistant as ai
 import bot_features as bf
 import security as sec
 
@@ -396,6 +397,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(self_ping()),
     ]
     yield
+    await assistant.aclose()
     for t in tasks:
         t.cancel()
     await bot.session.close()
@@ -405,6 +407,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 # Самый внешний слой: лимиты, баны, проверка Host/секрета Cloudflare, размер тела, таймаут, заголовки безопасности
 app.add_middleware(sec.Shield)
+
+
+# ИИ-ассистент (страница /ai): ключи и список моделей — только из переменных окружения GEMINI_API_KEY(S), GEMINI_MODELS
+assistant = ai.Assistant(channel_link=CHANNEL_LINK)
+AI_SLOTS = asyncio.Semaphore(6)      # одновременно не больше 6 запросов к нейросети
 
 
 # ====================== общее для веба ======================
@@ -439,6 +446,7 @@ _sid_owner = sec.Bounded(20000)      # sid -> tg_id
 _last_visit = sec.Bounded(20000)     # tg_id -> когда писали визит
 TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей действий в базу за 10 минут (сверх лимита молча отбрасываем)
 TOK_RATE = sec.Limiter(20, 600)      # на один токен: оценок инструментов за 10 минут
+TOK_AI = sec.Limiter(8, 60)          # на один токен: вопросов ИИ-ассистенту в минуту
 TOK_RATINGS = sec.Limiter(20, 60)    # на один токен: чтение сводного рейтинга
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
 NOSTORE = {"Cache-Control": "no-store"}
@@ -521,6 +529,34 @@ async def tools(request: Request, k: str = ""):
     if body is None:
         return JSONResponse({"error": "unavailable"}, status_code=503, headers=NOSTORE)
     return Response(body, media_type="application/json", headers=NOSTORE)
+
+
+class AiMsg(BaseModel):
+    role: str = Field(max_length=10)
+    text: str = Field(max_length=2000)
+
+
+class AiReq(BaseModel):
+    q: str = Field(min_length=1, max_length=ai.MAX_QUESTION)
+    history: list[AiMsg] = Field(default_factory=list, max_length=12)
+
+
+@app.post("/api/ai")
+async def ai_ask(request: Request, b: AiReq):
+    """Вопрос ИИ-ассистенту. Всегда возвращает ответ: при сбое всех моделей Gemini — локальный подбор по каталогу."""
+    ip = client_ip(request)
+    key = access_key(request)
+    if not await uid_by_token(key, ip):
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_AI.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    if AI_SLOTS.locked():
+        return JSONResponse({"error": "busy"}, status_code=503, headers={**NOSTORE, "Retry-After": "5"})
+    async with AI_SLOTS:
+        res = await assistant.answer(b.q, b.history, tools_json())
+    if not res["answer"]:
+        return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
+    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"]}, headers=NOSTORE)
 
 
 TOOL_RE = re.compile(r"[^\x00-\x1f\x7f<>]{1,200}")   # название инструмента: без управляющих символов и <>
@@ -1127,6 +1163,11 @@ async def root_page(request: Request):
 @app.get("/about")
 async def about_page():
     return FileResponse(BASE / "static" / "about.html")
+
+
+@app.get("/ai")
+async def ai_page():
+    return FileResponse(BASE / "static" / "ai.html")
 
 
 @app.get("/collab")
