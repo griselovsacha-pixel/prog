@@ -59,8 +59,19 @@ class Catalog(unittest.TestCase):
         block = p.split("CATALOG (JSON data):\n", 1)[1].strip()
         data = json.loads(block)                      # JSON валиден целиком, кавычки в описаниях не ломают структуру
         self.assertGreater(len(data["tools"]), 20)
-        self.assertIn("https://t.me/+chan", p)
         self.assertIn("@SexHarledy", p)
+        self.assertIn("{{DEV}}", p)                   # токены кнопок Telegram
+        self.assertIn("{{CHANNEL}}", p)
+        self.assertIn("@ocpaa", p)                    # автор Exif-Ксия
+        self.assertIn("Неприязнь", p)
+
+    def test_lolz_market_in_catalog(self):
+        flat = ai.flatten_catalog(json.loads(TOOLS))
+        lolz = next(t for t in flat["tools"] if t["name"] == "Lolz Market")
+        self.assertEqual(lolz["category"], "Покупка физ аккаунтов")
+        self.assertEqual(lolz["link"], "https://lolz.team/")
+        self.assertEqual(lolz["vpn"], "no")
+        self.assertIn("Требует регистрацию", lolz["extra"])
 
     def test_prompt_survives_hostile_catalog(self):
         evil = json.dumps({"name": "root", "children": [
