@@ -48,7 +48,40 @@
     }
     if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
   }
-  function render(el, text) {
+  // кнопки Telegram: ИИ пишет токены {{DEV}} / {{CHANNEL}}, а сайт рисует из них синие кнопки
+  const TG_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>';
+  const BTN_LABEL = { dev: 'Контакт разработчика', channel: 'Harledy Project' };
+  const esc = (u) => u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function extractButtons(text, links) {
+    const found = [];
+    const add_ = (k) => { if (links && safeHref(links[k]) && found.indexOf(k) < 0) found.push(k); };
+    text = text.replace(/\{\{\s*(DEV|CHANNEL)\s*\}\}/gi, (m, k) => { add_(k.toLowerCase()); return ''; });
+    // страховка: если модель всё же написала саму ссылку, тоже превращаем её в кнопку
+    ['dev', 'channel'].forEach((k) => {
+      const u = links && links[k];
+      if (!u) return;
+      const re = new RegExp('(?:\\[[^\\]]*\\]\\(\\s*' + esc(u) + '\\s*\\)|' + esc(u) + ')', 'gi');
+      text = text.replace(re, () => { add_(k); return ''; });
+    });
+    text = text.replace(/\(\s*\)/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    return { text, found };
+  }
+  function tgButtons(el, found, links) {
+    if (!found.length) return;
+    const row = document.createElement('div');
+    row.className = 'tgrow';
+    found.forEach((k) => {
+      const a = document.createElement('a');
+      a.className = 'btn-tg'; a.href = safeHref(links[k]); a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.innerHTML = TG_ICON;                           // статичная иконка из кода, пользовательский текст сюда не попадает
+      a.appendChild(document.createTextNode(' ' + BTN_LABEL[k]));
+      row.appendChild(a);
+    });
+    el.appendChild(row);
+  }
+  function render(el, text, links) {
+    const ex = extractButtons(text, links);
+    text = ex.text;
     const lines = text.replace(/\r/g, '').split('\n');
     let list = null, para = null;
     const flush = () => { list = null; para = null; };
@@ -70,13 +103,14 @@
         inline(para, line.replace(/^#{1,6}\s+/, ''));
       }
     }
+    tgButtons(el, ex.found, links);
   }
 
   // ---------- UI ----------
-  function add(cls, text) {
+  function add(cls, text, links) {
     const d = document.createElement('div');
     d.className = 'msg ' + cls;
-    if (text !== undefined) { if (cls.indexOf('ai') >= 0) render(d, text); else d.textContent = text; }
+    if (text !== undefined) { if (cls.indexOf('ai') >= 0) render(d, text, links); else d.textContent = text; }
     log.appendChild(d);
     d.scrollIntoView({ block: 'end', behavior: 'smooth' });
     return d;
@@ -115,14 +149,14 @@
     const wait = typing();
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 55000);
-    let answer = null, err = null;
+    let answer = null, links = null, err = null;
     try {
       const r = await fetch('/api/ai', {
         method: 'POST', signal: ctl.signal,
         headers: { 'Content-Type': 'application/json', 'X-Access-Key': K || '' },
         body: JSON.stringify({ q: text, history: history_.slice(-8) }),
       });
-      if (r.ok) { const j = await r.json(); answer = j.answer; }
+      if (r.ok) { const j = await r.json(); answer = j.answer; links = j.links; }
       else err = ERR[r.status] || 'Не удалось получить ответ. Попробуйте ещё раз.';
     } catch (e) {
       err = 'Не удалось получить ответ. Проверьте соединение и попробуйте ещё раз.';
@@ -131,7 +165,7 @@
     wait.remove();
     if (answer) {
       history_.push({ role: 'user', text }, { role: 'assistant', text: answer });
-      add('ai', answer);
+      add('ai', answer, links);
     } else {
       add('ai err', err || 'Пустой ответ. Попробуйте переформулировать вопрос.');
     }
