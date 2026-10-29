@@ -4,33 +4,40 @@
   * превращает каталог инструментов (дерево из tools.json) в компактный JSON и отдаёт его модели
     как данные в systemInstruction (json.dumps — без ручной склейки строк, кавычки и спецсимволы экранируются);
   * ходит в Gemini API по REST, ключи передаются заголовком x-goog-api-key (в URL и логи не попадают);
-  * ротация и фоллбек: цепочка «модель × ключ». Если модель перегружена (429/5xx), недоступна (404)
-    или ответила пусто / заблокировала ответ — запрос тут же уходит на следующую. Упавшая пара
-    на время «остывает», чтобы следующие запросы не тратили на неё время;
+  * БЫСТРЫЙ ВЫБОР МОДЕЛИ: порядок попыток не фиксированный, а по «ожидаемому времени ответа» — для каждой модели
+    считаются свежие (последние 10 минут) задержки и доля успехов. Модели, которые отвечают сразу, идут первыми;
+    перегруженные и тормозящие уезжают в конец и сами возвращаются, когда восстановятся. На холодном старте
+    приоритет у «lite»-моделей (они быстрее);
+  * ХЕДЖИНГ: если первая модель не ответила за пару секунд, параллельно стартует следующая (не больше
+    MAX_PARALLEL одновременно); побеждает первый ответ, остальные отменяются;
+  * БЕЗ ДОЛБЁЖКИ: между неудачными попытками небольшая пауза с джиттером, а «остывание» упавшей пары
+    растёт вдвое при каждом новом сбое подряд (20 с → 40 с → 80 с … до 10 минут); 404 (нет модели) — на час;
+  * кэш ответов на одинаковые вопросы без истории (чипсы-подсказки отвечают мгновенно);
   * если не ответила ни одна модель (или ключей нет вовсе) — пользователь всё равно получает ответ:
     локальный подбор инструментов из каталога на его языке.
 
 Только стандартная библиотека; aiohttp подключается лениво, поэтому модуль тестируется отдельно.
 """
 import asyncio
+import collections
 import hashlib
 import json
 import logging
 import os
+import random
 import re
 import time
 
 log = logging.getLogger("harledy.ai")
 
-# Порядок = приоритет. Можно переопределить переменной GEMINI_MODELS (через запятую).
-# Несуществующие модели не страшны: ответ 404 отправляет модель в долгий «отдых» и запрос идёт дальше.
+# Порядок = лишь «стартовый приоритет» при равных шансах; дальше модели ранжируются по реальной скорости.
+# Можно переопределить переменной GEMINI_MODELS (через запятую) — внимание: если она задана в Render,
+# значение из кода НЕ используется, поэтому убирайте оттуда мёртвые модели (404 / no-model).
 DEFAULT_MODELS = (
     "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
 )
 API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 
@@ -51,8 +58,16 @@ MAX_QUESTION = 1000          # символов в вопросе
 MAX_HISTORY = 8              # сколько последних реплик диалога помним
 MAX_HIST_TEXT = 1500         # символов в одной реплике истории
 CALL_TIMEOUT = _int_env("GEMINI_CALL_TIMEOUT", 12, 3, 60)    # одна попытка к одной модели, сек
-TOTAL_DEADLINE = _int_env("GEMINI_DEADLINE", 36, 8, 110)     # вся цепочка, сек (должен быть меньше REQ_TIMEOUT_AI)
+TOTAL_DEADLINE = _int_env("GEMINI_DEADLINE", 30, 8, 110)     # вся цепочка, сек (меньше таймаута клиента: 55 с в ai.js)
 MAX_ATTEMPTS = _int_env("GEMINI_MAX_ATTEMPTS", 8, 1, 30)
+MAX_PARALLEL = _int_env("GEMINI_PARALLEL", 2, 1, 4)          # сколько моделей одновременно (хеджинг); 1 = строго по очереди
+HEDGE_MIN = _int_env("GEMINI_HEDGE_MIN_MS", 2500, 500, 20000) / 1000    # не раньше, чем через столько стартует следующая
+HEDGE_MAX = _int_env("GEMINI_HEDGE_MAX_MS", 6000, 1000, 30000) / 1000
+RETRY_PAUSE = _int_env("GEMINI_RETRY_PAUSE_MS", 150, 0, 5000) / 1000    # пауза после сбоя (растёт и дрожит)
+HEALTH_WINDOW = 600          # сек: за какое время учитываем историю скорости/сбоев модели
+COOLDOWN_MAX = 600           # сек: потолок «остывания» упавшей пары
+CACHE_TTL = _int_env("GEMINI_CACHE_TTL", 900, 0, 86400)      # сек, 0 = кэш выключен
+CACHE_MAX = 128
 
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -309,9 +324,12 @@ class Assistant:
             _split(os.environ.get("GEMINI_MODELS", "")) or list(DEFAULT_MODELS))
         self.channel_link = channel_link
         self._cool: dict = {}          # ("pair", модель, №ключа) / ("model", модель) -> до какого момента не ходим
+        self._strikes: dict = {}       # (модель, №ключа) -> сбоев подряд (для растущего «остывания»)
+        self._hist: dict = {}          # модель -> deque[(время, успех, сек)] — свежая история скорости
+        self._cache: collections.OrderedDict = collections.OrderedDict()
         self._rr = 0                   # круговой счётчик для ротации ключей
         self._session = None
-        self.stats = {"ok": 0, "fallback": 0, "failures": {}}
+        self.stats = {"ok": 0, "fallback": 0, "cache_hits": 0, "hedged": 0, "failures": {}}
 
     # --- служебное
     def configured(self) -> bool:
@@ -321,23 +339,70 @@ class Assistant:
         now = time.monotonic()
         return self._cool.get(("pair", model, ki), 0) > now or self._cool.get(("model", model), 0) > now
 
+    # --- скорость и здоровье моделей
+    @staticmethod
+    def _prior_latency(model: str, idx: int) -> float:
+        """Стартовая оценка, пока данных нет: lite-модели быстрее; при равенстве — порядок из списка."""
+        return (2.0 if "lite" in model.lower() else 4.0) + 0.05 * idx
+
+    def _recent(self, model):
+        now = time.monotonic()
+        return [x for x in self._hist.get(model, ()) if now - x[0] < HEALTH_WINDOW]
+
+    def _typical(self, model, idx=0) -> float:
+        """Типичное время успешного ответа (сек): среднее по свежим успехам, сглаженное стартовой оценкой."""
+        prior = self._prior_latency(model, idx)
+        oks = [x[2] for x in self._recent(model) if x[1]]
+        return (sum(oks) + prior) / (len(oks) + 1)
+
+    def _expected(self, model, idx) -> float:
+        """Ожидаемая «цена» ответа: типичное время / вероятность успеха. Меньше — лучше."""
+        h = self._recent(model)
+        p = (sum(1 for x in h if x[1]) + 0.8) / (len(h) + 1)       # 0.8 — оптимистичная стартовая вероятность
+        return self._typical(model, idx) / max(p, 0.05)
+
+    def _record(self, model, ok: bool, secs: float):
+        self._hist.setdefault(model, collections.deque(maxlen=12)).append((time.monotonic(), ok, secs))
+
+    def ranking(self) -> list:
+        """Для диагностики: модели от самой «быстрой» к самой «медленной» с оценкой."""
+        return sorted(((round(self._expected(m, i), 2), m) for i, m in enumerate(self.models)))
+
     def candidates(self) -> list:
-        """Порядок попыток: по моделям (лучшие — первыми), внутри модели ключи по кругу.
+        """Порядок попыток: модели — по ожидаемой скорости (быстрые первыми), внутри модели ключи по кругу.
         «Остывающие» пары — в самом конце: если здоровых нет, всё равно пробуем, лишь бы ответить."""
         n = len(self.keys)
         if not n:
             return []
         self._rr = (self._rr + 1) % n
-        order = [(m, (self._rr + i) % n) for m in self.models for i in range(n)]
-        ok = [c for c in order if not self._cooling(*c)]
-        bad = [c for c in order if self._cooling(*c)]
+        order = []
+        for mi, m in enumerate(self.models):
+            cost = self._expected(m, mi)
+            for i in range(n):
+                order.append((cost, i, mi, m, (self._rr + i) % n))
+        order.sort(key=lambda t: t[:3])
+        pairs = [(m, ki) for _, _, _, m, ki in order]
+        ok = [c for c in pairs if not self._cooling(*c)]
+        bad = [c for c in pairs if self._cooling(*c)]
         return (ok + bad)[:MAX_ATTEMPTS]
 
     def _penalize(self, model, ki, res: CallResult):
         if res.cooldown > 0:
-            key = ("model", model) if res.scope == "model" else ("pair", model, ki)
-            self._cool[key] = time.monotonic() + res.cooldown
+            if res.scope == "model":
+                self._cool[("model", model)] = time.monotonic() + res.cooldown
+            else:
+                n = self._strikes.get((model, ki), 0) + 1
+                self._strikes[(model, ki)] = n
+                cd = min(res.cooldown * 2 ** (n - 1), COOLDOWN_MAX)       # 20 → 40 → 80 → … сек
+                self._cool[("pair", model, ki)] = time.monotonic() + cd
         self.stats["failures"][res.kind] = self.stats["failures"].get(res.kind, 0) + 1
+
+    @staticmethod
+    def _pause(fails: int) -> float:
+        """Пауза перед следующей попыткой после сбоя: растёт и «дрожит», чтобы не долбить API очередью запросов."""
+        if RETRY_PAUSE <= 0:
+            return 0.0
+        return min(RETRY_PAUSE * (2 ** max(fails - 1, 0)), 1.5) * random.uniform(0.7, 1.3)
 
     async def aclose(self):
         if self._session is not None and not self._session.closed:
@@ -347,7 +412,9 @@ class Assistant:
         """Одна попытка. Сеть: aiohttp. В тестах метод подменяется."""
         import aiohttp
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            # общий пул соединений: keep-alive и кэш DNS экономят ~100-300 мс на каждом запросе
+            self._session = aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(limit=32, ttl_dns_cache=300, keepalive_timeout=60))
         try:
             async with self._session.post(
                 f"{API_BASE}/models/{model}:generateContent",
@@ -370,6 +437,13 @@ class Assistant:
         except aiohttp.ClientError:
             return CallResult(kind="network", cooldown=10)
 
+    async def _guarded(self, model, key, payload, timeout) -> CallResult:
+        try:
+            return await self._call(model, key, payload, timeout)
+        except Exception as e:                               # любая неожиданность = переход к следующей модели
+            log.warning("ai call crashed on %s: %s", model, type(e).__name__)
+            return CallResult(kind="crash", cooldown=15)
+
     # --- основной вход
     @staticmethod
     def build_contents(question: str, history) -> list:
@@ -390,35 +464,102 @@ class Assistant:
         msgs.append({"role": "user", "parts": [{"text": question}]})
         return msgs
 
+    async def _race(self, cands: list, payload: dict, deadline: float):
+        """Запускает кандидатов по очереди; следующий стартует, если предыдущий упал (после паузы) или не ответил
+        за «время хеджа». Одновременно не больше MAX_PARALLEL. Возвращает (CallResult, модель, попыток) или (None, None, попыток)."""
+        pending: dict = {}                 # task -> (модель, №ключа, время старта)
+        queue = list(cands)
+        next_launch = 0.0
+        fails = tried = 0
+        try:
+            while True:
+                now = time.monotonic()
+                left = deadline - now
+                if left <= 0:
+                    break
+                can_launch = bool(queue) and len(pending) < MAX_PARALLEL and left >= 2
+                if can_launch and now >= next_launch:
+                    model, ki = queue.pop(0)
+                    t = asyncio.create_task(self._guarded(model, self.keys[ki], payload, min(CALL_TIMEOUT, left)))
+                    pending[t] = (model, ki, now)
+                    tried += 1
+                    if len(pending) > 1:
+                        self.stats["hedged"] += 1
+                    typical = self._typical(model, self.models.index(model) if model in self.models else 0)
+                    next_launch = now + max(HEDGE_MIN, min(HEDGE_MAX, typical * 1.6))
+                    continue
+                if not pending and not can_launch:
+                    break
+                tmo = min(max(next_launch - now, 0.0) if can_launch else left, left)
+                if not pending:
+                    await asyncio.sleep(tmo)                 # пауза после сбоя, прежде чем идти дальше
+                    continue
+                done, _ = await asyncio.wait(set(pending), timeout=tmo, return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    model, ki, t0 = pending.pop(t)
+                    res, dt = t.result(), time.monotonic() - t0
+                    if res.text:
+                        self._record(model, True, dt)
+                        self._strikes.pop((model, ki), None)
+                        return res, model, tried
+                    if res.kind != "blocked":                # блок по содержанию — не вина модели
+                        self._record(model, False, dt)
+                    log.warning("ai: %s (ключ #%d) не ответила за %.1f с: %s", model, ki + 1, dt, res.kind)
+                    self._penalize(model, ki, res)
+                    fails += 1
+                    next_launch = min(next_launch, time.monotonic() + self._pause(fails))
+            return None, None, tried
+        finally:
+            for t in pending:                                # проигравшие гонку отменяются
+                t.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    # --- кэш
+    def _ckey(self, question: str, history):
+        if not CACHE_TTL or history:
+            return None
+        return (" ".join(question.lower().split()), _prompt_cache["key"])
+
+    def _cache_get(self, ck):
+        if ck is None:
+            return None
+        hit = self._cache.get(ck)
+        if hit and hit[0] > time.monotonic():
+            self._cache.move_to_end(ck)
+            return hit[1]
+        self._cache.pop(ck, None)
+        return None
+
+    def _cache_put(self, ck, text):
+        if ck is None:
+            return
+        self._cache[ck] = (time.monotonic() + CACHE_TTL, text)
+        while len(self._cache) > CACHE_MAX:
+            self._cache.popitem(last=False)
+
     async def answer(self, question: str, history, tools_body) -> dict:
         question = clean_text(question, MAX_QUESTION)
         if not question:
             return {"answer": "", "model": None, "fallback": False}
         system = build_system_prompt(tools_body, self.channel_link)
+        ck = self._ckey(question, history)
+        cached = self._cache_get(ck)
+        if cached:
+            self.stats["cache_hits"] += 1
+            return {"answer": cached, "model": "cache", "fallback": False}
         payload = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": self.build_contents(question, history),
             "generationConfig": {"temperature": 0.6, "maxOutputTokens": 4096},
         }
-        deadline = time.monotonic() + TOTAL_DEADLINE
-        tried = 0
-        for model, ki in self.candidates():
-            left = deadline - time.monotonic()
-            if left < 2:
-                break
-            tried += 1
-            try:
-                res = await self._call(model, self.keys[ki], payload, min(CALL_TIMEOUT, left))
-            except Exception as e:                           # любая неожиданность = переход к следующей модели
-                log.warning("ai call crashed on %s: %s", model, type(e).__name__)
-                res = CallResult(kind="crash", cooldown=15)
-            if res.text:
-                self.stats["ok"] += 1
-                if tried > 1:
-                    log.info("ai: ответила %s (после %d попыток)", model, tried)
-                return {"answer": res.text, "model": model, "fallback": False}
-            log.warning("ai: %s (ключ #%d) не ответила: %s", model, ki + 1, res.kind)
-            self._penalize(model, ki, res)
+        t0 = time.monotonic()
+        res, model, tried = await self._race(self.candidates(), payload, t0 + TOTAL_DEADLINE)
+        if res is not None:
+            self.stats["ok"] += 1
+            self._cache_put(ck, res.text)
+            log.info("ai: ответила %s за %.1f с (попыток: %d)", model, time.monotonic() - t0, tried)
+            return {"answer": res.text, "model": model, "fallback": False}
         self.stats["fallback"] += 1
         if not self.configured():
             log.warning("GEMINI_API_KEY не задан: отвечаю локальным подбором по каталогу")
