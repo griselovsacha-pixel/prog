@@ -254,6 +254,41 @@
                 "username",
                 "цифровой след"
               ]
+            },
+            {
+              "name": "Wheelock Search",
+              "desc": "Хорошая замена Sherlock. Ищет по ФИО, телефону, почте, соцсетям (ВК, ОК) и Telegram (username, ID). Бот сам определяет тип поиска.",
+              "bot": "https://t.me/WheelockSearchBot",
+              "eternal": "https://t.me/+TclxQ8ti--E1YzIy",
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Бесплатные запросы",
+              "vpn": "no",
+              "tags": [
+                "osint",
+                "ФИО",
+                "номер телефона",
+                "email",
+                "ВК",
+                "username",
+                "telegram"
+              ]
+            },
+            {
+              "name": "τgsταt",
+              "desc": "Ищет сообщения пользователя в открытых чатах, показывает, кто ставил реакции на его сообщения, а также кто и кому дарил подарки.",
+              "bot": "https://t.me/Whtsaaphack_bot",
+              "eternal": "http://bit.ly/4kIt4t9",
+              "type": "bot",
+              "price": "freemium",
+              "price_text": "Бесплатные запросы",
+              "vpn": "no",
+              "tags": [
+                "telegram",
+                "сообщения",
+                "реакции",
+                "анализ"
+              ]
             }
           ]
         },
