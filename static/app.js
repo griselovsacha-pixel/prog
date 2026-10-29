@@ -395,6 +395,10 @@ function playIntro() {
     try {
       const r = await fetch('/api/tools', { headers: { 'X-Access-Key': k } });
       if (r.status === 429) return { err: 'Слишком много запросов. Подождите минуту и обновите страницу.' };
+      if (r.status === 403) {
+        const j = await r.json().catch(() => ({}));
+        if (j && j.error === 'terms') return { err: 'Чтобы открыть каталог, примите пользовательское соглашение в Telegram-боте: отправьте /start и нажмите «Я ознакомился и со всем согласен».' };
+      }
       return r.ok ? { data: await r.json() } : {};
     } catch (e) { return { err: 'Ошибка загрузки: ' + (e && e.message ? e.message : e) }; }
   })();
