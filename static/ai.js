@@ -115,15 +115,58 @@
     d.scrollIntoView({ block: 'end', behavior: 'smooth' });
     return d;
   }
-  function typing() {
-    const d = document.createElement('div');
-    d.className = 'msg ai';
+  // анимация ожидания: светящийся «шар» с орбитами, мерцающий статус, скелетон-строки и таймер
+  const PHASES = {
+    ru: ['Читаю ваш вопрос', 'Ищу в каталоге', 'Подбираю инструменты', 'Формулирую ответ'],
+    uk: ['Читаю ваше запитання', 'Шукаю в каталозі', 'Підбираю інструменти', 'Формулюю відповідь'],
+    kk: ['Сұрағыңызды оқып жатырмын', 'Каталогтан іздеп жатырмын', 'Құралдарды таңдап жатырмын', 'Жауап жазып жатырмын'],
+    en: ['Reading your question', 'Searching the catalog', 'Picking the best tools', 'Writing the answer'],
+  };
+  const SLOW = {
+    ru: 'Модель занята — подключаю запасную, секунду…', uk: 'Модель зайнята — підключаю запасну, секунду…',
+    kk: 'Модель бос емес — қосалқысын қосып жатырмын…', en: 'The model is busy — switching to a backup…',
+  };
+  function langOf(t) {
+    if (/[әғқңөұүһ]/i.test(t)) return 'kk';
+    if (/[іїєґ]/i.test(t)) return 'uk';
+    if (/[а-яё]/i.test(t)) return 'ru';
+    return /[a-z]/i.test(t) ? 'en' : 'ru';
+  }
+  function el(tag, cls, parent) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function typing(question) {
+    const lang = langOf(question || ''), phases = PHASES[lang];
+    const d = el('div', 'msg ai thinking');
     d.setAttribute('role', 'status');
     d.setAttribute('aria-label', 'ИИ думает');
-    d.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    const row = el('div', 'think', d), orb = el('div', 'orb', row);
+    el('span', 'ring', orb); el('span', 'ring r2', orb); el('span', 'core', orb);
+    ['s1', 's2', 's3'].forEach((c, i) => { const s = el('span', 'sat ' + c, orb); s.style.animationDelay = (-i * 0.9) + 's'; });
+    const tt = el('div', 'tt', row), txt = el('span', 'shim', tt), sub = el('span', 'sub', tt);
+    const sk = el('div', 'sk', d);
+    el('b', '', sk); el('b', '', sk); el('b', '', sk);
+    txt.textContent = phases[0] + '…';
     log.appendChild(d);
     d.scrollIntoView({ block: 'end', behavior: 'smooth' });
-    return d;
+
+    const t0 = Date.now();
+    let i = 0, slow = false;
+    const swap = (s) => { txt.classList.add('swap'); setTimeout(() => { txt.textContent = s; txt.classList.remove('swap'); }, 220); };
+    const timer = setInterval(() => {
+      const sec = (Date.now() - t0) / 1000;
+      sub.textContent = sec >= 3 ? sec.toFixed(0) + ' c' : '';
+      if (sec > 9 && !slow) { slow = true; swap(SLOW[lang]); }
+    }, 500);
+    const phase = setInterval(() => {
+      if (slow) return;
+      i = (i + 1) % phases.length;
+      swap(phases[i] + '…');
+    }, 2300);
+    return { el: d, stop() { clearInterval(timer); clearInterval(phase); d.remove(); } };
   }
   function sync() {
     send.disabled = busy || !q.value.trim();
@@ -146,7 +189,8 @@
     add('user', text);
     q.value = '';
     sync();
-    const wait = typing();
+    form.classList.add('busy');
+    const wait = typing(text);
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 55000);
     let answer = null, links = null, err = null;
@@ -162,7 +206,8 @@
       err = 'Не удалось получить ответ. Проверьте соединение и попробуйте ещё раз.';
     }
     clearTimeout(to);
-    wait.remove();
+    wait.stop();
+    form.classList.remove('busy');
     if (answer) {
       history_.push({ role: 'user', text }, { role: 'assistant', text: answer });
       add('ai', answer, links);
