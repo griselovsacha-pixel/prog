@@ -5,12 +5,16 @@ import asyncio
 import json
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import ai_assistant as ai  # noqa: E402
+
+ai.RETRY_PAUSE = 0          # в тестах не ждём пауз между попытками
+ai.CACHE_TTL = 0            # кэш включаем только в своём тесте
 
 TOOLS = (Path(ROOT) / "data" / "tools.json").read_bytes()
 
@@ -202,6 +206,142 @@ class ParseResponse(unittest.TestCase):
     def test_retry_after_is_clamped(self):
         self.assertEqual(ai.parse_response(429, {}, 9999).cooldown, 300)
         self.assertEqual(ai.parse_response(429, {}, None).cooldown, 60)
+
+
+class SlowFake(ai.Assistant):
+    """Сценарий с задержками: модель -> (секунды, результат)."""
+
+    def __init__(self, script, **kw):
+        super().__init__(**kw)
+        self.script, self.calls, self.cancelled = script, [], []
+
+    async def _call(self, model, key, payload, timeout):
+        self.calls.append(model)
+        delay, res = self.script.get(model, (0, None))
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            self.cancelled.append(model)
+            raise
+        return res or ai.CallResult(text="ok from " + model)
+
+
+class Speed(unittest.TestCase):
+    def test_lite_goes_first_on_cold_start(self):
+        a = ai.Assistant(keys=["k"], models=["big-flash", "small-flash-lite"])
+        self.assertEqual(a.candidates()[0][0], "small-flash-lite")
+
+    def test_fast_model_overtakes_slow_after_measurements(self):
+        a = ai.Assistant(keys=["k"], models=["m1", "m2"])
+        for _ in range(3):
+            a._record("m1", True, 9.0)           # m1 отвечает медленно
+            a._record("m2", True, 0.8)           # m2 — сразу
+        self.assertEqual(a.candidates()[0][0], "m2")
+
+    def test_overloaded_model_drops_down_and_recovers(self):
+        a = ai.Assistant(keys=["k"], models=["m1", "m2"])
+        for _ in range(4):
+            a._record("m1", False, 1.0)
+        self.assertEqual(a.candidates()[0][0], "m2")
+        a._hist["m1"].clear()                    # история устарела/сброшена -> снова стартовый приоритет
+        self.assertEqual(a.candidates()[0][0], "m1")
+
+    def test_cooldown_doubles_on_repeated_failures(self):
+        a = ai.Assistant(keys=["k"], models=["m1"])
+        res = ai.parse_response(503, {})
+        a._penalize("m1", 0, res)
+        first = a._cool[("pair", "m1", 0)] - ai.time.monotonic()
+        a._penalize("m1", 0, res)
+        second = a._cool[("pair", "m1", 0)] - ai.time.monotonic()
+        self.assertGreater(second, first * 1.8)
+        for _ in range(10):
+            a._penalize("m1", 0, res)
+        self.assertLessEqual(a._cool[("pair", "m1", 0)] - ai.time.monotonic(), ai.COOLDOWN_MAX + 1)
+
+    def test_success_resets_strikes(self):
+        a = SlowFake({"m1": (0, ai.parse_response(503, {}))}, keys=["k"], models=["m1", "m2"])
+        run(a.answer("x", [], TOOLS))
+        self.assertEqual(a._strikes.get(("m1", 0)), 1)
+        a2 = SlowFake({}, keys=["k"], models=["m1"])
+        a2._strikes[("m1", 0)] = 3
+        run(a2.answer("x", [], TOOLS))
+        self.assertNotIn(("m1", 0), a2._strikes)
+
+
+class Hedging(unittest.TestCase):
+    def setUp(self):
+        self._old = (ai.HEDGE_MIN, ai.HEDGE_MAX)
+        ai.HEDGE_MIN = ai.HEDGE_MAX = 0.05
+
+    def tearDown(self):
+        ai.HEDGE_MIN, ai.HEDGE_MAX = self._old
+
+    def test_slow_first_model_is_beaten_by_second(self):
+        a = SlowFake({"m1": (2.0, None), "m2": (0.01, None)}, keys=["k"], models=["m1", "m2"])
+        t = time.monotonic()
+        r = run(a.answer("x", [], TOOLS))
+        self.assertEqual(r["model"], "m2")
+        self.assertLess(time.monotonic() - t, 1.0)       # не ждали медленную
+        self.assertIn("m1", a.cancelled)                 # проигравшая отменена
+
+    def test_parallel_is_capped(self):
+        old = ai.MAX_PARALLEL
+        ai.MAX_PARALLEL = 2
+        try:
+            a = SlowFake({"m1": (0.6, None), "m2": (0.6, None), "m3": (0.01, None)},
+                         keys=["k"], models=["m1", "m2", "m3"])
+            run(a.answer("x", [], TOOLS))
+            # m3 не стартует, пока заняты два слота; к моменту её старта одна из первых уже ответила
+            self.assertIn(a.calls[0], ("m1", "m2", "m3"))
+            self.assertLessEqual(len(a.calls), 3)
+        finally:
+            ai.MAX_PARALLEL = old
+
+    def test_sequential_mode(self):
+        old = ai.MAX_PARALLEL
+        ai.MAX_PARALLEL = 1
+        try:
+            a = SlowFake({"m1": (0, ai.parse_response(503, {}))}, keys=["k"], models=["m1", "m2"])
+            self.assertEqual(run(a.answer("x", [], TOOLS))["model"], "m2")
+        finally:
+            ai.MAX_PARALLEL = old
+
+    def test_deadline_gives_local_fallback(self):
+        old = ai.TOTAL_DEADLINE
+        ai.TOTAL_DEADLINE = 2
+        try:
+            a = SlowFake({"m1": (30, None)}, keys=["k"], models=["m1"])
+            t = time.monotonic()
+            r = run(a.answer("где проверить почту на утечки", [], TOOLS))
+            self.assertTrue(r["fallback"])
+            self.assertLess(time.monotonic() - t, 5)
+        finally:
+            ai.TOTAL_DEADLINE = old
+
+
+class Cache(unittest.TestCase):
+    def setUp(self):
+        ai.CACHE_TTL = 60
+
+    def tearDown(self):
+        ai.CACHE_TTL = 0
+
+    def test_same_question_is_served_from_cache(self):
+        a = SlowFake({}, keys=["k"], models=["m1"])
+        r1 = run(a.answer("Кто создатель  проекта?", [], TOOLS))
+        r2 = run(a.answer("кто создатель проекта?", [], TOOLS))
+        self.assertEqual(r2["model"], "cache")
+        self.assertEqual(r1["answer"], r2["answer"])
+        self.assertEqual(len(a.calls), 1)
+
+    def test_history_bypasses_cache_and_fallback_is_not_cached(self):
+        a = SlowFake({}, keys=["k"], models=["m1"])
+        run(a.answer("hi", [], TOOLS))
+        run(a.answer("hi", [Msg("user", "a"), Msg("assistant", "b")], TOOLS))
+        self.assertEqual(len(a.calls), 2)
+        b = SlowFake({"m1": (0, ai.parse_response(503, {}))}, keys=["k"], models=["m1"])
+        run(b.answer("hello", [], TOOLS))
+        self.assertEqual(len(b._cache), 0)
 
 
 if __name__ == "__main__":
