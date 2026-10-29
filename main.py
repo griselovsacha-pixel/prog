@@ -95,6 +95,9 @@ EMOJI_LINK = "5193202823411546657"
 EMOJI_GATE = "6021409772350215140"
 ICON_CHANNEL = "6021452855167164269"
 ICON_DONE = "6021868492037298942"
+EMOJI_TERMS = "5881702736843511327"      # текст сообщения с соглашением
+ICON_TERMS = "5402398388203305953"       # кнопка «Пользовательское соглашение»
+ICON_AGREE = "5357069174512303778"       # кнопка «Я ознакомился и со всем согласен»
 
 SCHEMA = """
 create table if not exists users(
@@ -104,6 +107,7 @@ create table if not exists users(
     token text unique not null,
     created_at timestamptz not null default now()
 );
+alter table users add column if not exists terms_accepted_at timestamptz;
 create table if not exists visits(
     id bigserial primary key,
     tg_id bigint not null references users(tg_id),
@@ -263,19 +267,85 @@ async def send_menu(bot: Bot, u):
     await send(bot, u.id, text, kb=menu_kb(link, True), kb_plain=menu_kb(link, False))
 
 
+
+# ---- пользовательское соглашение: без него не работает ни бот, ни каталог на сайте
+_terms_ok = sec.Bounded(50000)     # tg_id тех, кто уже принял (принятие не отзывается — кэшируем навсегда)
+
+
+async def has_terms(uid: int) -> bool:
+    if uid in _terms_ok:
+        return True
+    if await pool.fetchval("select 1 from users where tg_id = $1 and terms_accepted_at is not null", uid):
+        _terms_ok.put(uid, True)
+        return True
+    return False
+
+
+async def has_full_access(bot: Bot, uid: int) -> bool:
+    """Соглашение принято И есть доступ по каналу."""
+    return await has_terms(uid) and await has_access(bot, uid)
+
+
+def terms_kb(icons: bool) -> InlineKeyboardMarkup:
+    def btn(text, icon, fb, **kw):
+        if icons:
+            return InlineKeyboardButton(text=text, icon_custom_emoji_id=icon, **kw)
+        return InlineKeyboardButton(text=f"{fb} {text}", **kw)
+
+    rows = []
+    if SITE_URL:
+        rows.append([btn("Пользовательское соглашение", ICON_TERMS, "📄", url=f"{SITE_URL}/terms")])
+    rows.append([btn("Я ознакомился и со всем согласен", ICON_AGREE, "✅", callback_data="accept_terms")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def send_terms(bot: Bot, chat_id: int):
+    await send(
+        bot, chat_id,
+        f"{emoji(EMOJI_TERMS, '📜')} <i>Перед началом пользования ботом ознакомьтесь с пользовательским соглашением. "
+        "Нажав кнопку «Я ознакомлен и согласен», вы подтверждаете, что полностью ознакомлены "
+        "и согласны с нашими правилами.</i>",
+        kb=terms_kb(True), kb_plain=terms_kb(False),
+    )
+
+
+async def proceed(bot: Bot, u, chat_id: int):
+    """Следующий шаг после соглашения: меню (есть доступ) или просьба подписаться."""
+    if await has_access(bot, u.id):
+        await send_menu(bot, u)
+    else:
+        await send_gate(bot, chat_id)
+
+
 @router.message(CommandStart())
 async def on_start(m: Message, state: FSMContext):
     await state.clear()                       # /start сбрасывает незаконченный диалог «Добавить инструмент»
     await ensure_user(m.from_user)  # ссылка создаётся сразу, при первом контакте
-    if await has_access(m.bot, m.from_user.id):
-        await send_menu(m.bot, m.from_user)
-    else:
-        await send_gate(m.bot, m.chat.id)
+    if not await has_terms(m.from_user.id):
+        return await send_terms(m.bot, m.chat.id)
+    await proceed(m.bot, m.from_user, m.chat.id)
+
+
+@router.callback_query(F.data == "accept_terms")
+async def on_accept_terms(cb: CallbackQuery):
+    await ensure_user(cb.from_user)
+    await pool.execute(
+        "update users set terms_accepted_at = now() where tg_id = $1 and terms_accepted_at is null", cb.from_user.id)
+    _terms_ok.put(cb.from_user.id, True)
+    await cb.answer("Спасибо! Соглашение принято.")
+    try:
+        await cb.message.delete()
+    except TelegramAPIError:
+        pass
+    await proceed(cb.bot, cb.from_user, cb.from_user.id)
 
 
 @router.callback_query(F.data == "check_sub")
 async def on_check(cb: CallbackQuery):
     await ensure_user(cb.from_user)
+    if not await has_terms(cb.from_user.id):          # старое сообщение с кнопкой «Я подписался»
+        await cb.answer()
+        return await send_terms(cb.bot, cb.from_user.id)
     if await has_access(cb.bot, cb.from_user.id):
         await cb.answer("Спасибо за подписку!", show_alert=True)
         try:
@@ -386,7 +456,7 @@ async def lifespan(app: FastAPI):
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
     dp.include_router(bf.router)
-    bf.configure(has_access=has_access, tools_json=tools_json, admin_id=TOOL_REVIEW_CHAT, channel_id=CHANNEL_ID,
+    bf.configure(has_access=has_full_access, tools_json=tools_json, admin_id=TOOL_REVIEW_CHAT, channel_id=CHANNEL_ID,
                  channel_link=CHANNEL_LINK, menu_parts=menu_parts, menu_kb=menu_kb, crypto_token=CRYPTO_PAY_TOKEN, crypto_host=CRYPTO_PAY_HOST)
     try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
         await bot.delete_webhook(drop_pending_updates=True)
@@ -453,26 +523,34 @@ DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков 
 NOSTORE = {"Cache-Control": "no-store"}
 
 
-async def uid_by_token(k: str, ip: str = "") -> int | None:
+async def resolve_token(k: str, ip: str = "") -> tuple[int | None, bool]:
+    """(tg_id, принято ли соглашение). tg_id = None — токен неверный."""
     # неправильный формат или заведомо чужой токен — в базу не ходим; повторные попытки ведут к бану
     if not k or not TOKEN_RE.fullmatch(k):
         sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
-        return None
+        return None, False
     now = time.monotonic()
     hit = _tok_cache.get(k)
-    if hit and hit[1] > now:
-        return hit[0]
+    if hit and hit[2] > now:
+        return hit[0], hit[1]
     if _bad_tok.get(k, 0) > now:
-        return None
+        return None, False
     if not DB_LOOKUPS.hit("db"):          # знакомые токены (кэш выше) проходят всегда, новые — в пределах бюджета
         raise HTTPException(429, headers={"Retry-After": "20"})
-    row = await pool.fetchrow("select tg_id from users where token = $1", k)
+    row = await pool.fetchrow("select tg_id, terms_accepted_at is not null as ok from users where token = $1", k)
     if not row:
         _bad_tok.put(k, now + 60)
         sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
-        return None
-    _tok_cache.put(k, (row["tg_id"], now + 600))
-    return row["tg_id"]
+        return None, False
+    # принявшего кэшируем надолго; не принявшего — на пару секунд, чтобы после кнопки в боте сайт открылся сразу
+    _tok_cache.put(k, (row["tg_id"], row["ok"], now + (600 if row["ok"] else 3)))
+    return row["tg_id"], row["ok"]
+
+
+async def uid_by_token(k: str, ip: str = "") -> int | None:
+    """tg_id только если токен верный И пользователь принял соглашение — иначе API закрыт."""
+    uid, ok = await resolve_token(k, ip)
+    return uid if ok else None
 
 
 def access_key(request: Request, fallback: str = "") -> str:
@@ -511,9 +589,11 @@ def tools_json() -> bytes | None:
 async def tools(request: Request, k: str = ""):
     ip = client_ip(request)
     key = access_key(request, k)
-    uid = await uid_by_token(key, ip)
+    uid, terms_ok = await resolve_token(key, ip)
     if not uid:
         return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not terms_ok:
+        return JSONResponse({"error": "terms"}, status_code=403, headers=NOSTORE)
     if not TOK_TOOLS.hit(key):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
     now = time.monotonic()
@@ -1170,6 +1250,11 @@ async def about_page():
 @app.get("/ai")
 async def ai_page():
     return FileResponse(BASE / "static" / "ai.html")
+
+
+@app.get("/terms")
+async def terms_page():
+    return FileResponse(BASE / "static" / "terms.html")
 
 
 @app.get("/collab")
