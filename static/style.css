@@ -257,3 +257,17 @@ body.panel-open #search{left:50%}
 }
 /* ---------- страница /ai ---------- */
 body.aipage #tag{font-size:13px;letter-spacing:.3em;padding-left:.3em}
+
+/* статус инструмента (автопроверка) */
+#pstatus{margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:13px;line-height:1.5;color:var(--fg)}
+#pstatus b{display:block;margin-bottom:4px;color:var(--fg-h);font-size:12px;letter-spacing:.04em}
+#pstatus span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--mute);vertical-align:1px}
+#pstatus.ok span::before{background:#5fb98a}
+#pstatus.warn span::before{background:#d9a441}
+#pstatus.bad span::before{background:#e0706a}
+#pstatus.bad{border-color:rgba(224,112,106,.45)}
+#pstatus small{display:block;margin-top:6px;color:var(--mute);font-size:12px}
+/* неработающий инструмент в дереве — серая метка */
+.node.leaf.dead circle.dot{fill:#6a6a6a;stroke:#6a6a6a}
+.node.dead text{fill:var(--mute)}
+.node.dead:hover text,.node.dead.sel text,.node.dead.tgt text{fill:var(--fg-h)}
