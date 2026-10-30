@@ -43,6 +43,7 @@ const layout = d3.tree().nodeSize([ROW, 1]);
 let root, uid = 0, first = true, panelOpen = false;
 let selNode = null, foundNode = null, foundIds = new Set();   // выбранный в карточке узел и найденный через поиск путь
 let RATINGS = {};
+let STATUS = {}, STATUS_AT = 0;   // результаты автопроверки: инструмент -> {s, m, a, bad}
 
 const zoom = d3.zoom()
   .scaleExtent([0.15, 3])
@@ -116,7 +117,8 @@ function update(src) {
 
   const all = enter.merge(node);
   all.classed('leaf', isLeaf).classed('open', d => !!d.children)
-    .classed('sel', d => d === selNode).classed('pth', d => foundIds.has(d.id)).classed('tgt', d => d === foundNode);
+    .classed('sel', d => d === selNode).classed('pth', d => foundIds.has(d.id)).classed('tgt', d => d === foundNode)
+    .classed('dead', isDeadNode);
   tr(all, d => (entered.has(d.id) ? stagger(d) : 0)).attr('transform', at).attr('opacity', 1);
 
   node.exit().transition().duration(DUR).ease(EASE)
@@ -163,6 +165,38 @@ const PRICE_LABEL = { free: 'Бесплатно', freemium: 'Есть беспл
 const PRICE_CLASS = { free: 'ok', freemium: 'ok', paid: 'warn', unknown: 'mute' };
 const VPN_LABEL = { no: 'Работает без VPN', yes: 'Нужен VPN', unknown: 'Данные не заполнены' };
 const VPN_CLASS = { no: 'ok', yes: 'bad', unknown: 'mute' };
+// ---- статус инструмента (автопроверка): серая метка в дереве и блок «Статус:» в карточке
+const isDeadNode = d => !!(d && isLeaf(d) && STATUS[d.key] && STATUS[d.key].bad);
+function fmtAge(sec) {
+  if (sec < 90) return 'только что';
+  const m = Math.round(sec / 60); if (m < 60) return m + ' мин назад';
+  const h = Math.round(sec / 3600); if (h < 48) return h + ' ч назад';
+  return Math.round(h / 24) + ' дн. назад';
+}
+function applyStatus(d) {
+  const st = STATUS[d.key], box = $('pstatus');
+  box.className = 'st ' + (!st || st.s === 'unknown' ? 'mute' : st.s === 'ok' ? 'ok' : st.bad ? 'bad' : 'warn');
+  const label = Object.assign(document.createElement('b'), { textContent: 'Статус:' });
+  const text = Object.assign(document.createElement('span'), {
+    textContent: st ? st.m : 'Ещё не проверялся. Проверка выполняется автоматически раз в сутки.' });
+  box.replaceChildren(label, text);
+  if (st) box.append(Object.assign(document.createElement('small'), {
+    textContent: 'Проверено ' + fmtAge(st.a + (Date.now() - STATUS_AT) / 1000) }));
+
+  // если бот/сайт не работает — «вечная ссылка» выходит на первый план
+  const bot = safeUrl(d.data.bot), eternal = safeUrl(d.data.eternal);
+  const isTg = /^https?:\/\/t(elegram)?\.me\//i.test(d.data.bot || '');
+  const hasEternal = !!(eternal && eternal !== bot), down = !!(st && st.bad);
+  const promote = down && hasEternal, foot = $('btnBot').parentNode;
+  foot.insertBefore(promote ? $('btnEternal') : $('btnBot'), promote ? $('btnBot') : $('btnEternal'));
+  $('btnEternal').className = 'btn ' + (promote ? 'primary' : 'ghost');
+  $('btnBot').className = 'btn ' + (promote ? 'ghost' : 'primary');
+  $('pfootNote').hidden = !(hasEternal || down);
+  if (promote) $('pfootNote').textContent = isTg ? 'Бот сейчас недоступен — откройте вечную ссылку.' : 'Сайт сейчас недоступен — откройте зеркало.';
+  else if (down) $('pfootNote').textContent = 'Постоянной ссылки пока нет: ожидайте, пока администратор заменит ссылку.';
+  else if (hasEternal) $('pfootNote').textContent = isTg ? 'Вечная ссылка работает, если бот неактивен.' : 'Зеркало работает, если основной адрес недоступен.';
+}
+
 function toolBadges(t) {
   const out = [];
   if (TYPE_LABEL[t.type]) out.push(['type', TYPE_LABEL[t.type]]);
@@ -224,8 +258,7 @@ function showPanel(d) {
   const showEternal = eternal && eternal !== bot;                 // не дублируем одну и ту же ссылку
   $('btnEternal').hidden = !showEternal;
   if (showEternal) { $('btnEternal').href = eternal; $('btnEternal').textContent = bTg ? 'Вечная ссылка' : 'Зеркало'; }
-  $('pfootNote').hidden = !showEternal;
-  if (showEternal) $('pfootNote').textContent = bTg ? 'Вечная ссылка работает, если бот неактивен.' : 'Зеркало работает, если основной адрес недоступен.';
+  applyStatus(d);
   selNode = d;
   nodeG.selectAll('g.node').classed('sel', n => n === d);
   curTool = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › ');
@@ -264,7 +297,7 @@ svg.on('dblclick', e => { if (e.target === svg.node()) svg.transition().duration
 
 function init(data) {
   root = d3.hierarchy(prune(data));
-  root.each(d => { d.id = ++uid; d.w = measure(d.data.name); });
+  root.each(d => { d.id = ++uid; d.w = measure(d.data.name); d.key = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › '); });
   const nTools = root.leaves().length, nCats = root.descendants().length - nTools - 1;
   try { window.HSearch && HSearch.build(root); } catch (e) { console.error('search index', e); }   // индекс строим, пока все ветки раскрыты
   closeDeep(root);
@@ -412,4 +445,10 @@ function playIntro() {
   try { init(res.data); startBeat(); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
   if (K) fetch('/api/ratings', { headers: { 'X-Access-Key': K } })
     .then(r => (r.ok ? r.json() : {})).then(d => { RATINGS = d || {}; }).catch(() => {});
+  if (K) fetch('/api/status', { headers: { 'X-Access-Key': K } })
+    .then(r => (r.ok ? r.json() : {})).then(d => {
+      STATUS = d && !d.error ? d : {}; STATUS_AT = Date.now();
+      nodeG.selectAll('g.node').classed('dead', isDeadNode);      // серые метки без перерисовки дерева
+      if (selNode) applyStatus(selNode);                          // если карточка уже открыта — обновляем её
+    }).catch(() => {});
 })();
