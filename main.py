@@ -25,7 +25,7 @@ from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery, ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup, Message,
@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 import ai_assistant as ai
 import bot_features as bf
+import monitor as mon
 import security as sec
 
 logging.basicConfig(level=logging.INFO)
@@ -154,6 +155,17 @@ create table if not exists ratings(
     primary key (tg_id, tool)
 );
 create index if not exists ratings_tool_idx on ratings(tool);
+create table if not exists tool_status(
+    tool text primary key,
+    kind text not null,
+    state text not null,
+    message text not null,
+    code int,
+    fails int not null default 0,
+    checked_at timestamptz not null default now(),
+    ok_at timestamptz
+);
+alter table tool_status enable row level security;
 alter table users enable row level security;
 alter table ratings enable row level security;
 alter table visits enable row level security;
@@ -326,6 +338,23 @@ async def on_start(m: Message, state: FSMContext):
     await proceed(m.bot, m.from_user, m.chat.id)
 
 
+STATUS_ADMINS = ADMIN_TG_IDS | {TOOL_REVIEW_CHAT}
+_bg_tasks: set = set()
+
+
+@router.message(Command("check"))
+async def on_check_status(m: Message):
+    """Владелец: /check — внеочередная проверка всех ссылок каталога (отчёт придёт сюда же)."""
+    if not m.from_user or m.from_user.id not in STATUS_ADMINS:
+        return
+    if mon.is_running():
+        return await m.answer("Проверка уже идёт, отчёт придёт сюда.")
+    await m.answer("Запустил проверку каталога. Боты жду до 5 минут, потом пришлю отчёт.")
+    t = asyncio.create_task(mon.run(pool, tools_json(), bot=m.bot, report_chat=m.chat.id))
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+
+
 @router.callback_query(F.data == "accept_terms")
 async def on_accept_terms(cb: CallbackQuery):
     await ensure_user(cb.from_user)
@@ -431,6 +460,19 @@ async def self_ping():
                 log.warning("self-ping failed: %s", e)
 
 
+async def status_loop(bot: Bot):
+    """Раз в сутки проверяет живость сайтов и ботов. Что уже проверено недавно (в т.ч. до перезапуска Render), пропускает."""
+    await asyncio.sleep(120)
+    while True:
+        try:
+            await mon.run(pool, tools_json(), bot=bot, report_chat=TOOL_REVIEW_CHAT, only_due=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("проверка каталога не удалась: %s", e)
+        await asyncio.sleep(900)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
@@ -466,6 +508,7 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(dp.start_polling(bot, handle_signals=False)),
         asyncio.create_task(self_ping()),
+        asyncio.create_task(status_loop(bot)),
     ]
     yield
     await assistant.aclose()
@@ -519,6 +562,7 @@ TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей 
 TOK_RATE = sec.Limiter(20, 600)      # на один токен: оценок инструментов за 10 минут
 TOK_AI = sec.Limiter(8, 60)          # на один токен: вопросов ИИ-ассистенту в минуту
 TOK_RATINGS = sec.Limiter(20, 60)    # на один токен: чтение сводного рейтинга
+TOK_STATUS = sec.Limiter(20, 60)     # на один токен: чтение статусов инструментов
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
 NOSTORE = {"Cache-Control": "no-store"}
 
@@ -710,6 +754,22 @@ async def rate(request: Request, b: Rate):
     )
     row = await pool.fetchrow("select avg(stars)::float av, count(*) n from ratings where tool = $1", b.tool)
     return JSONResponse({"ok": True, "avg": round(row["av"] or 0, 1), "count": row["n"], "mine": b.stars}, headers=NOSTORE)
+
+
+@app.get("/api/status")
+async def status_api(request: Request, k: str = ""):
+    """Статусы всех инструментов (результат автопроверки): s — состояние, m — текст, a — возраст проверки в секундах."""
+    key = access_key(request, k)
+    uid = await uid_by_token(key, client_ip(request))
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_STATUS.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    rows = await pool.fetch(
+        "select tool, kind, state, message, extract(epoch from now() - checked_at)::int as age from tool_status")
+    out = {r["tool"]: {"s": r["state"], "m": r["message"], "k": r["kind"], "a": r["age"], "bad": r["state"] in mon.BAD}
+           for r in rows}
+    return JSONResponse(out, headers=NOSTORE)
 
 
 @app.get("/api/ratings")
