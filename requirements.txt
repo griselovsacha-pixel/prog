@@ -4,3 +4,4 @@ uvicorn[standard]>=0.30
 asyncpg>=0.29
 aiohttp>=3.9
 tzdata
+telethon>=1.36
