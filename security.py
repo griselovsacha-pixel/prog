@@ -195,7 +195,7 @@ LIMITS = {
 def classify(path: str) -> str:
     if path == "/ping":
         return "ping"
-    if path == "/api/tools":
+    if path in ("/api/tools", "/api/status"):
         return "tools"
     if path == "/api/track":
         return "track"
