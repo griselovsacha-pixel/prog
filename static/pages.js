@@ -10,10 +10,10 @@
     // Ссылка на главную. С поддомена (about., admin.) ведём на основной домен.
     // Метка #nointro: возврат с внутренней страницы не должен снова запускать заставку с лупой
     // (подробности — в intro-gate.js).
-    var a = document.getElementById('back');
-    if (!a) return;
+    var links = document.querySelectorAll('[data-home]');
     var host = location.hostname.replace(/^(about|admin)\./, '');
-    a.href = location.protocol + '//' + host + (location.port ? ':' + location.port : '') + '/#nointro';
+    var href = location.protocol + '//' + host + (location.port ? ':' + location.port : '') + '/#nointro';
+    for (var i = 0; i < links.length; i++) links[i].href = href;
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
