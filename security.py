@@ -48,6 +48,7 @@ REQ_TIMEOUT_AI = _int_env("REQ_TIMEOUT_AI", 45, 10, 120)         # цепочк�
 DEBUG_IP = os.environ.get("DEBUG_IP") == "1"
 HTTPS_SITE = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").startswith("https")
 EXEMPT_NETS: list = []  # сети, которые не банятся (админ); заполняет main.py
+ON_BAN = None            # функция (ключ, вид, номер нарушения, секунд) — вызывается при бане; ставит main.py (алерты)
 
 
 # ---------------------------------------------------------------- определение IP
@@ -177,6 +178,11 @@ class Bans:
         off = (self.bans.get(key) or [0, 0])[1] + 1
         self.bans.put(key, [now + min(3600, 600 * 2 ** (off - 1)), off])
         log.warning("ban: %s on %s (offense #%s)", kind, key, off)
+        if ON_BAN:
+            try:
+                ON_BAN(key, kind, off, min(3600, 600 * 2 ** (off - 1)))
+            except Exception:
+                pass
         return True
 
 
