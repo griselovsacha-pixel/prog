@@ -60,6 +60,16 @@ MSG_BOT_NO_REPLY = "Бот не отвечает, возможны технич�
 MSG_BOT_DELETED = ("Бот удалён, воспользуйтесь постоянной ссылкой "
                    "или ожидайте, пока администратор вручную заменит ссылку")
 MSG_SITE_OK = "Активен, работает без ошибок"
+MSG_SITE_NO_REPLY = "Сайт не отвечает, возможны технические работы. Попробуйте позже."
+MSG_SITE_DELETED = ("Сайт закрыт или удалён, воспользуйтесь зеркалом "
+                    "или ожидайте, пока администратор вручную заменит ссылку")
+
+
+def manual_message(kind: str, state: str) -> str:
+    """Текст статуса, который админ выставил вручную (ok / no_reply / deleted)."""
+    if kind == "bot":
+        return {OK: MSG_BOT_OK, NO_REPLY: MSG_BOT_NO_REPLY, DELETED: MSG_BOT_DELETED}[state]
+    return {OK: MSG_SITE_OK, NO_REPLY: MSG_SITE_NO_REPLY, DELETED: MSG_SITE_DELETED}[state]
 
 
 @dataclass
@@ -125,6 +135,8 @@ def collect(tree: dict) -> list[dict]:
             return
         url = str(n.get("bot") or "").strip()
         if not names or not url:
+            return
+        if n.get("mstatus"):          # статус выставлен админом вручную — автопроверка этот инструмент не трогает
             return
         if is_tg_url(url):
             uname = tg_username(url)
