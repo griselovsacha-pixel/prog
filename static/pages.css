@@ -1,16 +1,19 @@
 /* Общие стили внутренних страниц: «О нас», «Сотрудничество», «Соглашение», «AI».
    Принцип: спокойная типографика, тонкие линии вместо карточек, один акцентный цвет, без градиентов и свечения. */
 :root{
-  --bg:#1a1a1a;--card:#202020;--fg:#aaa;--fg-h:#f2f2f2;--line:#323232;--mute:#868686;--accent:#5b93c4;--hover:#242424;
+  --bg:#1a1a1a;--card:#202020;--fg:#aaa;--fg-h:#f2f2f2;--line:#323232;--mute:#868686;--accent:#5b93c4;--hover:#242424;--dot:#3d3d3d;--vig:rgba(0,0,0,.45);
 }
 :root[data-theme="light"]{
-  --bg:#f6f6f4;--card:#fff;--fg:#555;--fg-h:#141414;--line:#dcdcd8;--mute:#777;--accent:#2f6fa5;--hover:#ececE8;
+  --bg:#f6f6f4;--card:#fff;--fg:#555;--fg-h:#141414;--line:#dcdcd8;--mute:#777;--accent:#2f6fa5;--hover:#ececE8;--dot:#cfcfc9;--vig:rgba(0,0,0,.09);
 }
 *{box-sizing:border-box;margin:0}
 html{-webkit-text-size-adjust:100%}
 body{background:var(--bg);color:var(--fg);min-height:100vh;
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  /* тот же фон, что на главной: точечная сетка и мягкая виньетка */
+  background-image:radial-gradient(ellipse at center,transparent 50%,var(--vig) 100%),radial-gradient(circle,var(--dot) 1.5px,transparent 1.9px);
+  background-size:100% 100%,26px 26px;background-attachment:fixed,scroll;
   animation:fade .35s ease both}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 a{color:var(--accent)}
@@ -18,9 +21,13 @@ a{color:var(--accent)}
 
 /* ---------- шапка ---------- */
 .top{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line)}
-.top-in{max-width:1040px;margin:0 auto;padding:0 24px;min-height:62px;display:flex;align-items:center;gap:20px}
+.top-in{max-width:1040px;margin:0 auto;padding:0 24px;min-height:62px;display:flex;align-items:center;gap:16px}
 .logo{display:inline-flex;align-items:center;gap:9px;color:var(--fg-h);text-decoration:none;font-weight:700;font-size:16px;letter-spacing:-.01em;white-space:nowrap}
 .logo svg{width:18px;height:18px;flex:none}
+/* кнопка «← На главную» */
+.home{display:inline-block;color:var(--fg);text-decoration:none;font-size:13px;white-space:nowrap;padding:7px 14px;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);transition:color .2s,border-color .2s}
+.home:hover{color:var(--fg-h);border-color:var(--fg)}
 .menu{margin-left:auto;display:flex;align-items:center;gap:2px}
 .menu a{padding:7px 12px;border-radius:6px;color:var(--fg);text-decoration:none;font-size:14px;white-space:nowrap;
   transition:color .15s,background .15s,border-color .15s}
