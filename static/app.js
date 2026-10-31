@@ -420,6 +420,7 @@ function playIntro() {
   });
 }
 
+const NO_INTRO = document.documentElement.classList.contains('nointro');   // решает intro-gate.js
 // ---- запуск: заставка (название по центру → наверх) → дерево
 (async () => {
   const k = K;
@@ -436,11 +437,17 @@ function playIntro() {
     } catch (e) { return { err: 'Ошибка загрузки: ' + (e && e.message ? e.message : e) }; }
   })();
 
-  try { await playIntro(); } catch (e) { $('splash') && $('splash').remove(); }   // лупа проявляет название
-  document.body.classList.remove('intro');       // название уезжает наверх
+  if (NO_INTRO) {                                // вернулись с внутренней страницы или поддомена: сразу к дереву
+    $('splash') && $('splash').remove();
+    document.body.classList.remove('intro');
+  } else {
+    try { sessionStorage.setItem('introSeen', '1'); } catch (e) {}
+    try { await playIntro(); } catch (e) { $('splash') && $('splash').remove(); }   // лупа проявляет название
+    document.body.classList.remove('intro');     // название уезжает наверх
+  }
   document.querySelector('.lupa').classList.add('draw');
   const res = await load;
-  await wait(450);
+  if (!NO_INTRO) await wait(450);
   if (!res.data) return deny(res.err);
   try { init(res.data); startBeat(); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
   if (K) fetch('/api/ratings', { headers: { 'X-Access-Key': K } })
