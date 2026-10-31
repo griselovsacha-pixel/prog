@@ -38,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import ai_assistant as ai
+import alerts
 import bot_features as bf
 import catalog as cat
 import monitor as mon
@@ -45,6 +46,7 @@ import security as sec
 
 logging.basicConfig(level=logging.INFO)
 sec.install_log_masking()   # токены доступа (?k=…) и токен бота не попадают в логи
+alerts.install_log_handler()   # ошибки уровня ERROR из любых логов приходят владельцу в личку бота
 log = logging.getLogger("harledy")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -60,6 +62,12 @@ ADMIN_TG_IDS = {int(x) for x in re.findall(r"\d+", os.environ.get("ADMIN_TG_IDS"
 
 # заявки «Добавить свой инструмент» приходят этому Telegram ID; Crypto Pay — токен только из переменных окружения
 TOOL_REVIEW_CHAT = int(os.environ.get("TOOL_REVIEW_CHAT") or 8521863420)
+# куда слать алерты (ошибки, входы в админку, баны, новые пользователи …); по умолчанию — владельцу
+ALERT_CHAT = int(os.environ.get("ALERT_CHAT_ID") or TOOL_REVIEW_CHAT)
+try:
+    DIGEST_HOUR = int(os.environ.get("ALERT_DIGEST_HOUR", "9"))
+except ValueError:
+    DIGEST_HOUR = 9
 CRYPTO_PAY_TOKEN = os.environ.get("CRYPTO_PAY_TOKEN", "").strip()
 CRYPTO_PAY_HOST = os.environ.get("CRYPTO_PAY_HOST", "https://pay.crypt.bot").strip()   # для тестов: https://testnet-pay.crypt.bot
 
@@ -198,6 +206,10 @@ async def send(bot: Bot, chat_id: int, text: str, kb=None, kb_plain=None):
         return await bot.send_message(chat_id, strip_emoji(text), reply_markup=kb_plain or kb)
 
 
+def who(u) -> str:
+    return f"{u.full_name}" + (f" (@{u.username})" if u.username else "") + f" · ID {u.id}"
+
+
 async def ensure_user(u) -> str:
     """Создаёт юзера при первом контакте. Токен ссылки генерируется один раз и больше не меняется."""
     row = await pool.fetchrow(
@@ -205,9 +217,11 @@ async def ensure_user(u) -> str:
            values($1, $2, $3, $4)
            on conflict (tg_id) do update
              set full_name = excluded.full_name, username = excluded.username
-           returning token""",
+           returning token, (xmax = 0) as is_new""",
         u.id, u.full_name, u.username, secrets.token_urlsafe(18),
     )
+    if row["is_new"]:
+        alerts.notify("user", "Новый пользователь", who(u))
     return row["token"]
 
 
@@ -360,8 +374,10 @@ async def on_check_status(m: Message):
 @router.callback_query(F.data == "accept_terms")
 async def on_accept_terms(cb: CallbackQuery):
     await ensure_user(cb.from_user)
-    await pool.execute(
+    res = await pool.execute(
         "update users set terms_accepted_at = now() where tg_id = $1 and terms_accepted_at is null", cb.from_user.id)
+    if res.endswith(" 1"):
+        alerts.notify("terms", "Принял пользовательское соглашение", who(cb.from_user))
     _terms_ok.put(cb.from_user.id, True)
     await cb.answer("Спасибо! Соглашение принято.")
     try:
@@ -425,10 +441,12 @@ async def on_join_request(req: ChatJoinRequest):
     log.info("join request: user=%s chat_id=%s title=%r link=%s", req.from_user.id, req.chat.id, req.chat.title, link)
     if not is_our_channel(req.chat.id, link):
         return
-    await pool.execute(
+    res = await pool.execute(
         "insert into join_requests(tg_id, chat_id) values($1, $2) on conflict do nothing",
         req.from_user.id, req.chat.id,
     )
+    if res.endswith(" 1"):
+        alerts.notify("join", "Заявка в канал", who(req.from_user))
 
 
 async def diagnose(bot: Bot):
@@ -460,6 +478,7 @@ async def self_ping():
                     await r.read()
             except Exception as e:
                 log.warning("self-ping failed: %s", e)
+                alerts.notify("db", "Сайт не отвечает на собственный /ping", type(e).__name__, key="selfping", cooldown=3600)
 
 
 async def status_loop(bot: Bot):
@@ -472,7 +491,58 @@ async def status_loop(bot: Bot):
             raise
         except Exception as e:
             log.warning("проверка каталога не удалась: %s", e)
+            alerts.notify("error", "Автопроверка каталога упала", type(e).__name__, key="statusloop", cooldown=3600)
         await asyncio.sleep(900)
+
+
+async def health_loop():
+    """Раз в минуту проверяем базу. Алерт только после двух подряд одинаковых результатов — одиночный сбой не шумит."""
+    state, streak = True, 0
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await asyncio.wait_for(pool.fetchval("select 1"), 8)
+            good, err = True, ""
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            good, err = False, type(e).__name__
+        streak = streak + 1 if good != state else 0
+        if streak >= 2:
+            state, streak = good, 0
+            alerts.notify("db", "База данных снова доступна" if good else "База данных недоступна", err)
+
+
+async def digest_loop():
+    """Раз в сутки (ALERT_DIGEST_HOUR по ADMIN_TZ) — короткая сводка: люди, заходы, ошибки, баны."""
+    if DIGEST_HOUR < 0:
+        return
+    while True:
+        tz = ZoneInfo(ADMIN_TZ)
+        now = datetime.now(tz)
+        nxt = now.replace(hour=min(DIGEST_HOUR, 23), minute=0, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        await asyncio.sleep((nxt - now).total_seconds())
+        try:
+            r = await pool.fetchrow(
+                """select (select count(*) from users) total,
+                          (select count(*) from users where created_at > now() - interval '24 hours') new_users,
+                          (select count(*) from join_requests where created_at > now() - interval '24 hours') reqs,
+                          (select count(distinct tg_id) from visits where created_at > now() - interval '24 hours') visitors,
+                          (select count(*) from events where ev = 'select' and created_at > now() - interval '24 hours') opens,
+                          (select count(*) from events where ev = 'bot' and created_at > now() - interval '24 hours') bots,
+                          (select count(*) from ratings where updated_at > now() - interval '24 hours') rates""")
+            st = alerts.take_stats()
+            alerts.notify("digest", "Сводка за сутки",
+                          f"Пользователей всего: {r['total']} (новых: {r['new_users']})\n"
+                          f"Заявок в канал: {r['reqs']}\nУникальных заходов на сайт: {r['visitors']}\n"
+                          f"Открыто инструментов: {r['opens']} · переходов в ботов: {r['bots']} · оценок: {r['rates']}\n"
+                          f"Ошибок: {st.get('error', 0)} · банов: {st.get('ban', 0)} · "
+                          f"чужих попыток в админку: {st.get('probe', 0)}")
+        except Exception as e:
+            log.warning("суточная сводка не собралась: %s", e)
+        await asyncio.sleep(60)
 
 
 async def catalog_loop():
@@ -510,6 +580,23 @@ async def lifespan(app: FastAPI):
         log.warning("ALLOWED_HOSTS не задан: проверка заголовка Host выключена (см. SECURITY.md)")
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    alerts.start(bot, ALERT_CHAT, ADMIN_TZ)
+    problems = []
+    if not ADMIN_NETS:
+        problems.append("ADMIN_IP не задан: админка закрыта для всех")
+    elif not admin_enabled():
+        problems.append("админка не настроена (ADMIN_LOGIN / ADMIN_PASSWORD / ADMIN_TOTP_SECRET)")
+    if len(_secret_env) < 32:
+        problems.append("ADMIN_SESSION_SECRET не задан: сессия админа сбрасывается при перезапуске")
+    if not sec.ALLOWED_HOSTS:
+        problems.append("ALLOWED_HOSTS не задан: проверка Host выключена")
+    if not SITE_URL:
+        problems.append("SITE_URL не задан")
+    alerts.notify("start", "Сервер запущен",
+                  "Алерты работают.\n" + ("\n".join("⚠️ " + p for p in problems) if problems else "Настройки безопасности в порядке."))
+    sec.ON_BAN = lambda key, kind, off, secs: alerts.notify(
+        "ban", "Заблокирован адрес" + (": перебор токенов доступа" if kind == "token" else ""),
+        f"{key}\nпричина: {kind} · нарушение №{off} · на {secs // 60} мин", key=key, cooldown=600)
     dp = Dispatcher()
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
@@ -526,8 +613,12 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(self_ping()),
         asyncio.create_task(status_loop(bot)),
         asyncio.create_task(catalog_loop()),
+        asyncio.create_task(health_loop()),
+        asyncio.create_task(digest_loop()),
     ]
     yield
+    alerts.notify("stop", "Сервер останавливается", "Перезапуск или деплой на Render.")
+    await alerts.stop()                  # дослать очередь до закрытия сессии бота
     await assistant.aclose()
     for t in tasks:
         t.cancel()
@@ -673,6 +764,7 @@ async def tools(request: Request, k: str = ""):
             )
         except Exception as e:                           # сбой статистики не должен ронять сайт
             log.warning("visit insert failed: %s", e)
+            alerts.notify("db", "Не удалось записать визит в базу", type(e).__name__, key="visit", cooldown=600)
     body = tools_json()
     if body is None:
         return JSONResponse({"error": "unavailable"}, status_code=503, headers=NOSTORE)
@@ -709,6 +801,9 @@ async def ai_ask(request: Request, b: AiReq):
         status = ratings = None
     async with AI_SLOTS:
         res = await assistant.answer(b.q, b.history, tools_json(), status, ratings)
+    if res.get("fallback"):
+        alerts.notify("ai", "ИИ недоступен: ответ из локального каталога",
+                      "Gemini не ответил (все модели и ключи). Проверьте ключи и квоту.", key="aifb", cooldown=900)
     if not res["answer"]:
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
     return JSONResponse({"answer": res["answer"], "fallback": res["fallback"], "tools": res.get("tools", []),
@@ -944,8 +1039,15 @@ def check_origin(req: Request):
         raise HTTPException(403)
 
 
+def probe_alert(req: Request):
+    ip = client_ip(req)
+    alerts.notify("probe", "Кто-то с чужого IP пробует открыть админку", f"IP {ip}\n{req.method} {req.url.path}",
+                  key=ip, cooldown=900)
+
+
 def guard(req: Request, full: bool = True):
     if not ip_ok(req):
+        probe_alert(req)
         raise HTTPException(404)
     if req.method == "POST":
         check_origin(req)
@@ -994,6 +1096,7 @@ except OSError:
 
 def admin_page(req: Request):
     if not ip_ok(req):
+        probe_alert(req)
         return RedirectResponse(main_url(req), status_code=302)
     return FileResponse(ADMIN_HTML, headers={"Cache-Control": "no-store", "Content-Security-Policy": ADMIN_CSP})
 
@@ -1030,13 +1133,16 @@ async def admin_login(request: Request, body: Login):
     if not admin_enabled():
         return JSONResponse({"error": "Админка не настроена: задайте ADMIN_LOGIN, ADMIN_PASSWORD и ADMIN_TOTP_SECRET."}, status_code=503)
     if is_locked(ip):
+        alerts.notify("admin", "Вход в админку заблокирован: слишком много неверных попыток", f"IP {ip}", key="lock", cooldown=600)
         return JSONResponse({"error": "Слишком много попыток. Подождите 15 минут."}, status_code=429)
     ok = hmac.compare_digest(body.login.encode(), ADMIN_LOGIN.encode()) & \
         hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode())
     if not ok:
         add_fail(ip)
+        alerts.notify("admin", "Неверный логин или пароль админки", f"IP {ip}", key="pw" + ip, cooldown=120)
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный логин или пароль."}, status_code=401)
+    alerts.notify("admin", "Пароль админки верный, ждём код 2FA", f"IP {ip}", key="pre", cooldown=60)
     resp = JSONResponse({"ok": True, "step": "2fa"})
     put_cookie(resp, request, "hpre", new_token("pre", ip, 300), 300)
     return resp
@@ -1052,8 +1158,10 @@ async def admin_2fa(request: Request, body: Code):
         return JSONResponse({"error": "Слишком много попыток. Подождите 15 минут."}, status_code=429)
     if not verify_totp(body.code):
         add_fail(ip)
+        alerts.notify("admin", "Неверный код 2FA админки", f"IP {ip}", key="2fa" + ip, cooldown=120)
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный код."}, status_code=401)
+    alerts.notify("admin", "Вход в админку выполнен", f"IP {ip}")
     drop_session(request, "hpre")          # код подтверждения одноразовый
     resp = JSONResponse({"ok": True})
     put_cookie(resp, request, "hadm", new_token("full", ip, 4 * 3600), 4 * 3600)
@@ -1359,14 +1467,17 @@ async def admin_user(request: Request, tg_id: int = ApiPath(ge=0, le=10**15)):
 
 
 # ---- каталог: правка через админку
-async def _cat_call(coro):
+async def _cat_call(coro, what: str = "", ip: str = "", detail: str = ""):
     try:
         res = await coro
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400, headers=NOSTORE)
     except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
         log.warning("каталог: ошибка базы: %s", e)
+        alerts.notify("db", "Каталог: ошибка базы данных", type(e).__name__, key="catdb", cooldown=300)
         return JSONResponse({"error": "База недоступна, попробуйте ещё раз"}, status_code=503, headers=NOSTORE)
+    if what:
+        alerts.notify("catalog", f"Каталог изменён: {what}", f"{detail[:150]}\nIP {ip}")
     return JSONResponse({"ok": True, "id": res if isinstance(res, int) else None}, headers=NOSTORE)
 
 
@@ -1400,26 +1511,29 @@ async def admin_catalog_export(request: Request):
 @app.post("/admin/api/catalog/create")
 async def admin_catalog_create(request: Request):
     guard(request)
-    return await _cat_call(cat.create(pool, await _json_body(request)))
+    d = await _json_body(request)
+    return await _cat_call(cat.create(pool, d), "добавлено", client_ip(request), f"{d.get('kind')}: {d.get('name')}")
 
 
 @app.post("/admin/api/catalog/update")
 async def admin_catalog_update(request: Request):
     guard(request)
-    return await _cat_call(cat.update(pool, await _json_body(request)))
+    d = await _json_body(request)
+    return await _cat_call(cat.update(pool, d), "изменено", client_ip(request), f"id {d.get('id')}: {d.get('name') or ''}")
 
 
 @app.post("/admin/api/catalog/delete")
 async def admin_catalog_delete(request: Request):
     guard(request)
-    return await _cat_call(cat.delete(pool, (await _json_body(request)).get("id")))
+    d = await _json_body(request)
+    return await _cat_call(cat.delete(pool, d.get("id")), "удалено", client_ip(request), f"id {d.get('id')}")
 
 
 @app.post("/admin/api/catalog/move")
 async def admin_catalog_move(request: Request):
     guard(request)
     d = await _json_body(request)
-    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")))
+    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")), "перемещено", client_ip(request), f"id {d.get('id')} {d.get('dir')}")
 
 
 # ====================== страницы и поддомены ======================
