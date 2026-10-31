@@ -505,7 +505,9 @@ async def lifespan(app: FastAPI):
     if len(_secret_env) < 32:
         log.warning("ADMIN_SESSION_SECRET не задан (или короче 32 символов): сессии админа сбрасываются при перезапуске")
     if not sec.ORIGIN_SECRET:
-        log.warning("ORIGIN_SECRET не задан: сайт доступен в обход вашего Cloudflare (см. SECURITY.md)")
+        log.info("ORIGIN_SECRET не задан: нужен только когда сайт стоит за вашим Cloudflare (см. SECURITY.md)")
+    if not sec.ALLOWED_HOSTS:
+        log.warning("ALLOWED_HOSTS не задан: проверка заголовка Host выключена (см. SECURITY.md)")
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
@@ -576,6 +578,7 @@ _last_visit = sec.Bounded(20000)     # tg_id -> когда писали визи
 TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей действий в базу за 10 минут (сверх лимита молча отбрасываем)
 TOK_RATE = sec.Limiter(20, 600)      # на один токен: оценок инструментов за 10 минут
 TOK_AI = sec.Limiter(8, 60)          # на один токен: вопросов ИИ-ассистенту в минуту
+TOK_AI_DAY = sec.Limiter(150, 86400) # на один токен: вопросов ИИ в сутки (защита квоты Gemini)
 TOK_RATINGS = sec.Limiter(20, 60)    # на один токен: чтение сводного рейтинга
 TOK_STATUS = sec.Limiter(20, 60)     # на один токен: чтение статусов инструментов
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
@@ -695,6 +698,8 @@ async def ai_ask(request: Request, b: AiReq):
         return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
     if not TOK_AI.hit(key):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    if not TOK_AI_DAY.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "3600"})
     if AI_SLOTS.locked():
         return JSONResponse({"error": "busy"}, status_code=503, headers={**NOSTORE, "Retry-After": "5"})
     try:                                   # живые данные для ИИ: сбой базы не должен лишать пользователя ответа
@@ -708,6 +713,32 @@ async def ai_ask(request: Request, b: AiReq):
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
     return JSONResponse({"answer": res["answer"], "fallback": res["fallback"], "tools": res.get("tools", []),
                          "links": {"dev": DEV_LINK, "channel": CHANNEL_LINK}}, headers=NOSTORE)
+
+
+_tool_keys = {"body": None, "keys": None}
+
+
+def known_tool(name: str) -> bool:
+    """Название инструмента (путь «Категория › Название») должно существовать в каталоге: иначе в базу
+    можно набить мусорные строки. Если каталог недоступен, проверку пропускаем."""
+    body = tools_json()
+    if body is None:
+        return True
+    if _tool_keys["body"] is not body:
+        keys: set = set()
+
+        def walk(node, prefix):
+            for c in node.get("children") or []:
+                if isinstance(c, dict) and isinstance(c.get("name"), str):
+                    k = f"{prefix} › {c['name']}" if prefix else c["name"]
+                    keys.add(k)
+                    walk(c, k)
+        try:
+            walk(json.loads(body), "")
+        except ValueError:
+            return True
+        _tool_keys["body"], _tool_keys["keys"] = body, frozenset(keys)
+    return name in _tool_keys["keys"]
 
 
 TOOL_RE = re.compile(r"[^\x00-\x1f\x7f<>]{1,200}")   # название инструмента: без управляющих символов и <>
@@ -725,7 +756,7 @@ async def track(request: Request, b: Track):
     """hb — пульс (время на сайте и «онлайн»), select/bot/eternal — действия с инструментами."""
     if b.ev not in ("hb", "select", "bot", "eternal") or not re.fullmatch(r"[\w-]{8,64}", b.sid):
         return JSONResponse({"ok": False}, status_code=400)
-    if b.tool is not None and not TOOL_RE.fullmatch(b.tool):
+    if b.tool is not None and not (TOOL_RE.fullmatch(b.tool) and known_tool(b.tool)):
         return JSONResponse({"ok": False}, status_code=400)
     ip = client_ip(request)
     key = access_key(request, b.k)
@@ -764,7 +795,7 @@ class Rate(BaseModel):
 @app.post("/api/rate")
 async def rate(request: Request, b: Rate):
     """Оценка инструмента от 1 до 5 звёзд. Один человек — одна (перезаписываемая) оценка на инструмент."""
-    if not TOOL_RE.fullmatch(b.tool) or not (1 <= b.stars <= 5):
+    if not TOOL_RE.fullmatch(b.tool) or not known_tool(b.tool) or not (1 <= b.stars <= 5):
         return JSONResponse({"ok": False}, status_code=400)
     key = access_key(request, b.k)
     uid = await uid_by_token(key, client_ip(request))
@@ -907,8 +938,9 @@ def session_state(req: Request) -> str:
 
 def check_origin(req: Request):
     """POST в админку принимаем только со страницы самого сайта (защита от CSRF поверх SameSite=Strict)."""
+    # Origin обязателен: браузер всегда шлёт его при POST из fetch; запрос без него — не со страницы админки
     origin = req.headers.get("origin")
-    if origin and urlsplit(origin).netloc != req.headers.get("host", ""):
+    if not origin or urlsplit(origin).netloc != req.headers.get("host", ""):
         raise HTTPException(403)
 
 
@@ -1412,8 +1444,22 @@ async def ai_page():
     return FileResponse(BASE / "static" / "ai.html")
 
 
+def is_subdomain(req: Request) -> bool:
+    """about.<домен>, admin.<домен> и любые другие поддомены основного сайта (SITE_URL)."""
+    host = req.headers.get("host", "").split(":")[0].lower().rstrip(".")
+    if host.startswith(("about.", "admin.")):
+        return True
+    main = (urlsplit(SITE_URL).hostname or "").lower() if SITE_URL else ""
+    return bool(main) and host != main and host.endswith("." + main)
+
+
+# Пользовательское соглашение доступно ТОЛЬКО на основном домене. На поддоменах (about., admin., …)
+# и по прямому адресу /terms.html отдаём не страницу, а переход на основной сайт.
 @app.get("/terms")
-async def terms_page():
+@app.get("/terms.html")
+async def terms_page(request: Request):
+    if is_subdomain(request):
+        return RedirectResponse(main_url(request) + "terms", status_code=302)
     return FileResponse(BASE / "static" / "terms.html")
 
 
