@@ -697,11 +697,16 @@ async def ai_ask(request: Request, b: AiReq):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
     if AI_SLOTS.locked():
         return JSONResponse({"error": "busy"}, status_code=503, headers={**NOSTORE, "Retry-After": "5"})
+    try:                                   # живые данные для ИИ: сбой базы не должен лишать пользователя ответа
+        status, ratings = await status_map(), await ratings_summary()
+    except Exception as e:
+        log.warning("ai: статусы/рейтинги недоступны: %s", e)
+        status = ratings = None
     async with AI_SLOTS:
-        res = await assistant.answer(b.q, b.history, tools_json())
+        res = await assistant.answer(b.q, b.history, tools_json(), status, ratings)
     if not res["answer"]:
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
-    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"],
+    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"], "tools": res.get("tools", []),
                          "links": {"dev": DEV_LINK, "channel": CHANNEL_LINK}}, headers=NOSTORE)
 
 
@@ -776,6 +781,21 @@ async def rate(request: Request, b: Rate):
     return JSONResponse({"ok": True, "avg": round(row["av"] or 0, 1), "count": row["n"], "mine": b.stars}, headers=NOSTORE)
 
 
+async def status_map() -> dict:
+    """Статусы всех инструментов (автопроверка + ручные от админа): для сайта и для ИИ-ассистента."""
+    rows = await pool.fetch(
+        "select tool, kind, state, message, extract(epoch from now() - checked_at)::int as age from tool_status")
+    out = {r["tool"]: {"s": r["state"], "m": r["message"], "k": r["kind"], "a": r["age"], "bad": r["state"] in mon.BAD}
+           for r in rows}
+    out.update(cat.manual_status())          # статус, выставленный админом вручную, главнее автопроверки
+    return out
+
+
+async def ratings_summary() -> dict:
+    rows = await pool.fetch("select tool, avg(stars)::float av, count(*) n from ratings group by tool")
+    return {r["tool"]: {"avg": round(r["av"] or 0, 1), "count": r["n"]} for r in rows}
+
+
 @app.get("/api/status")
 async def status_api(request: Request, k: str = ""):
     """Статусы всех инструментов (результат автопроверки): s — состояние, m — текст, a — возраст проверки в секундах."""
@@ -785,12 +805,7 @@ async def status_api(request: Request, k: str = ""):
         return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
     if not TOK_STATUS.hit(key):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
-    rows = await pool.fetch(
-        "select tool, kind, state, message, extract(epoch from now() - checked_at)::int as age from tool_status")
-    out = {r["tool"]: {"s": r["state"], "m": r["message"], "k": r["kind"], "a": r["age"], "bad": r["state"] in mon.BAD}
-           for r in rows}
-    out.update(cat.manual_status())          # статус, выставленный админом вручную, главнее автопроверки
-    return JSONResponse(out, headers=NOSTORE)
+    return JSONResponse(await status_map(), headers=NOSTORE)
 
 
 @app.get("/api/ratings")
