@@ -88,6 +88,56 @@ class Catalog(unittest.TestCase):
         self.assertIn('"tools":[]', ai.build_system_prompt(None, "c"))
 
 
+class LiveStatus(unittest.TestCase):
+    def test_tools_have_site_keys(self):
+        flat = ai.flatten_catalog(json.loads(TOOLS))
+        sherlock = next(t for t in flat["tools"] if t["name"] == "Sherlock")
+        self.assertEqual(sherlock["key"], "Поиск данных › Telegram bots › Sherlock")
+
+    def test_live_block_has_status_and_rating(self):
+        key = "Поиск данных › Telegram bots › Sherlock"
+        live = json.loads(ai.live_block({key: {"s": "no_reply", "m": "Бот не отвечает", "a": 7200, "bad": True}},
+                                        {key: {"avg": 4.5, "count": 3}}))
+        self.assertIs(live[key]["working"], False)
+        self.assertEqual(live[key]["checked"], "2 h ago")
+        self.assertEqual(live[key]["rating"], {"avg": 4.5, "votes": 3})
+        manual = json.loads(ai.live_block({"x": {"s": "ok", "m": "ok", "a": 0, "manual": True}}, None))
+        self.assertEqual(manual["x"]["checked"], "set by admin")
+        self.assertEqual(ai.live_block(None, None), "{}")
+
+    def test_prompt_explains_status_and_buttons(self):
+        p = ai.build_system_prompt(TOOLS, "c")
+        self.assertIn("LIVE STATUS", p)
+        self.assertIn("Permanent link", p)
+
+    def test_mentioned_tools_carry_links_and_status(self):
+        key = "Поиск данных › Telegram bots › Sherlock"
+        t = ai.mentioned_tools("- **Sherlock** — ищет данные", TOOLS, {key: {"s": "deleted", "bad": True}})
+        s = next(x for x in t if x["name"] == "Sherlock")
+        self.assertTrue(s["link"].startswith("https://t.me/"))
+        self.assertTrue(s["bad"])
+        self.assertEqual(s["state"], "deleted")
+        self.assertEqual(ai.mentioned_tools("ничего", TOOLS, None), [])
+        self.assertEqual(ai.mentioned_tools("x", b"broken", None), [])
+
+    def test_local_answer_has_no_raw_urls(self):
+        self.assertNotIn("http", ai.local_answer("где проверить почту на утечки", TOOLS))
+
+    def test_answer_returns_tools_and_cache_depends_on_status(self):
+        ai.CACHE_TTL = 900
+        try:
+            a = Fake({}, keys=["k1"], models=["m1"])
+            r1 = run(a.answer("расскажи про Sherlock", [], TOOLS, {}))
+            r2 = run(a.answer("расскажи про Sherlock", [], TOOLS, {"k": {"s": "ok", "m": "ok", "a": 1}}))
+            self.assertEqual(r1["model"], "m1")
+            self.assertEqual(r2["model"], "m1")           # статус изменился — кэш не используется
+            r3 = run(a.answer("расскажи про Sherlock", [], TOOLS, {"k": {"s": "ok", "m": "ok", "a": 1}}))
+            self.assertEqual(r3["model"], "cache")
+            self.assertIn("tools", r3)
+        finally:
+            ai.CACHE_TTL = 0
+
+
 class Language(unittest.TestCase):
     def test_detect(self):
         self.assertEqual(detect("Привет, какие есть инструменты?"), "ru")
