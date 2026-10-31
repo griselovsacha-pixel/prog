@@ -297,12 +297,17 @@ async def add_not_text(m: Message):
     await show(m, f"{em('error')} Пожалуйста, отправьте текстовое сообщение.", lambda r: kb([cancel_row(r)]))
 
 
+SUBMITS = sec.Limiter(3, 3600)       # не больше 3 заявок в час от одного человека: чат админа не заспамить
+
+
 @router.callback_query(StateFilter(AddTool.confirm), F.data == "atok")
 async def add_confirm(cb: CallbackQuery, state: FSMContext):
     d = await state.get_data()
     await state.clear()                                   # повторное нажатие уже ничего не отправит
     if not d.get("link"):
         return await cb.answer("Заявка устарела, начните заново", show_alert=True)
+    if not SUBMITS.hit(str(cb.from_user.id)):
+        return await cb.answer("Слишком много заявок. Попробуйте через час.", show_alert=True)
     u = cb.from_user
     who = f'<a href="tg://user?id={u.id}">{e(u.full_name)}</a>' + (f" (@{e(u.username)})" if u.username else "")
     text = (f"{em('confirm')} <b>Новая заявка: добавить инструмент</b>\n\n{summary(d, d['link'])}\n\n"
