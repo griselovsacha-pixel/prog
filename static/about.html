@@ -3,46 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>О нас — Harledy Project</title>
+<title>Сотрудничество — Harledy Project</title>
+<link rel="stylesheet" href="/pages.css?v=9">
+<style>
+.wrap{max-width:720px;padding:84px 24px 60px}
+.brand{margin-bottom:20px;font-size:16px}
+.hero{position:relative;margin-bottom:22px}
+.hero::before{content:"";position:absolute;left:-50px;top:-60px;width:300px;height:300px;z-index:-1;pointer-events:none;background:radial-gradient(circle,rgba(79,134,179,.2),transparent 68%)}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);padding:4px 11px;border:1px solid var(--line);border-radius:99px;margin-bottom:14px}
+.eyebrow::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.hero h1{font-size:clamp(26px,4.4vw,38px);line-height:1.15;margin:0 0 12px}
+.hero .lead{font-size:16.5px;line-height:1.7;margin:0}
+.sec{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin:28px 0 10px}
+.story{padding:20px 22px;border-radius:16px;background:var(--card);border:1px solid var(--line)}
+.story p{margin:0 0 12px;font-size:15.5px;line-height:1.75}
+.story p:last-child{margin:0}
+.story b{color:var(--fg-h)}
+.note{margin:12px 0 0;padding:11px 15px;border-left:3px solid var(--accent);border-radius:0 10px 10px 0;background:rgba(79,134,179,.08);font-size:13.5px;line-height:1.5}
+.box{margin:0 0 12px;padding:16px 18px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+.box p{margin:0 0 12px;font-size:15px;line-height:1.65}
+.box .value{font-size:19px}
+.btn-tg{padding:11px 20px;font-size:15px}
+.steps li::before{content:none!important;display:none!important}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.steps li{display:flex;gap:14px;align-items:flex-start;padding:16px 18px;background:var(--card);border:1px solid var(--line);border-radius:14px}
+.num{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:50%;font-size:14px;font-weight:800;color:var(--accent);border:1px solid rgba(79,134,179,.55);background:rgba(79,134,179,.1)}
+.steps h3{font-size:16px;margin:2px 0 4px;color:var(--fg-h)}
+.steps p{margin:0;font-size:15px;line-height:1.65}
+.price{display:inline-flex;align-items:baseline;gap:8px;margin:10px 0 12px;padding:8px 16px;border-radius:12px;border:1px solid rgba(79,134,179,.5);background:rgba(79,134,179,.1)}
+.price b{font-size:30px;line-height:1;font-weight:800;color:var(--fg-h)}
+.price span{font-size:15px;color:var(--fg-h)}
+.steps .btn-tg{margin-top:2px}
+@media (max-width:560px){.btn-tg{width:100%}.steps li{padding:14px}}
+</style>
 <script src="/pages.js?v=6"></script>
-<link rel="stylesheet" href="/pages.css?v=8">
 </head>
 <body>
-<header class="top"><div class="top-in">
-  <a id="back" class="home" data-home href="/#nointro">← На главную</a>
-  <a class="logo" data-home href="/#nointro" aria-label="Harledy Project — на главную"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy Project</a>
-  <nav class="menu" aria-label="Разделы">
-    <a href="/about" aria-current="page">О нас</a>
-    <a href="/collab">Сотрудничество</a>
-    <a href="/ai">AI</a>
-    <a class="terms" href="/terms"><span class="full">Пользовательское соглашение</span><span class="short">Соглашение</span></a>
-  </nav>
-</div></header>
+<div class="bar"><a id="back" class="pill" data-home href="/#nointro">← На главную</a><a class="pill" href="/terms"><span class="full">Пользовательское соглашение</span><span class="short">Соглашение</span></a></div>
 <main class="wrap">
-  <section class="hero">
-    <p class="kicker">О нас</p>
-    <h1>Harledy Project — сборник инструментов</h1>
-    <p class="lead">Наш проект — это сборник инструментов, собранный в одном удобном месте. Мы объединяем Telegram-боты и другие сервисы по категориям, чтобы вам не приходилось искать нужное по всему интернету.</p>
+  <div class="brand" style="--i:0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg> Harledy Project</div>
+  <section class="hero" style="--i:1">
+    <div class="eyebrow">Сотрудничество</div>
+    <h1>Разместим ваш инструмент на&nbsp;нашем сайте</h1>
+    <p class="lead">Всего три простых шага.</p>
   </section>
 
-  <div class="prose">
-    <p>Каждый инструмент представлен <b>отдельной карточкой</b>: с названием, подробным описанием, кнопкой перехода в бота и вечной ссылкой на случай, если бот временно недоступен.</p>
-    <p>Каталог устроен как <b>интерактивное дерево</b>. Раскрывайте ветки, выбирайте категорию, например OSINT, logger или snosers, и находите подходящий инструмент в пару кликов. Со временем в дереве появятся и другие разделы.</p>
-    <p>Доступ к сайту открывается по <b>личной ссылке</b> из нашего Telegram-бота после подачи заявки в канал проекта.</p>
-  </div>
-  <p class="note">Лучше открывать сайт с&nbsp;компьютера: в&nbsp;мобильной версии отображение может быть некорректным.</p>
-
-  <section class="sec">
-    <h2>Обновления</h2>
-    <div class="prose"><p>Вся информация об обновлениях проекта публикуется в нашем Telegram-канале. Подписывайтесь, чтобы ничего не пропустить.</p></div>
-    <a class="btn-tg" href="https://t.me/+X8s2DkoSD7M3MTc6" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> Перейти в канал</a>
-  </section>
-
-  <section class="sec">
-    <h2>Контакт</h2>
-    <div class="label">Разработчик</div>
-    <a class="value" href="https://t.me/SexHarledy" target="_blank" rel="noopener">@SexHarledy</a>
-  </section>
+  <ol class="steps" style="--i:2">
+    <li><div class="num">1</div><div>
+      <h3>У вас есть свой инструмент?</h3>
+      <p>Вы создали бота или сервис, но хотите, чтобы о нём узнало больше людей?</p></div></li>
+    <li><div class="num">2</div><div>
+      <h3>Мы поможем о нём рассказать</h3>
+      <p>Мы разместим название и описание вашего инструмента на нашем сайте и будем постоянно рекламировать проект, приводя трафик в вашего бота. Так вырастет активность в вашем боте.</p></div></li>
+    <li><div class="num">3</div><div>
+      <h3>Стоимость</h3>
+      <div class="price"><b>100</b><span>звёзд Telegram</span></div>
+      <p style="margin-bottom:12px">Для покупки свяжитесь с разработчиком.</p>
+      <a class="btn-tg" href="https://t.me/SexHarledy" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> Связаться с разработчиком</a></div></li>
+  </ol>
 </main>
 </body>
 </html>
