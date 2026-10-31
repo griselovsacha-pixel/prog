@@ -181,7 +181,7 @@ function applyStatus(d) {
     textContent: st ? st.m : 'Ещё не проверялся. Проверка выполняется автоматически раз в сутки.' });
   box.replaceChildren(label, text);
   if (st) box.append(Object.assign(document.createElement('small'), {
-    textContent: 'Проверено ' + fmtAge(st.a + (Date.now() - STATUS_AT) / 1000) }));
+    textContent: st.manual ? 'Статус указан администратором' : 'Проверено ' + fmtAge(st.a + (Date.now() - STATUS_AT) / 1000) }));
 
   // если бот/сайт не работает — «вечная ссылка» выходит на первый план
   const bot = safeUrl(d.data.bot), eternal = safeUrl(d.data.eternal);
