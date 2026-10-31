@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 import ai_assistant as ai
 import bot_features as bf
+import catalog as cat
 import monitor as mon
 import security as sec
 
@@ -62,7 +63,8 @@ TOOL_REVIEW_CHAT = int(os.environ.get("TOOL_REVIEW_CHAT") or 8521863420)
 CRYPTO_PAY_TOKEN = os.environ.get("CRYPTO_PAY_TOKEN", "").strip()
 CRYPTO_PAY_HOST = os.environ.get("CRYPTO_PAY_HOST", "https://pay.crypt.bot").strip()   # для тестов: https://testnet-pay.crypt.bot
 
-# где лежит список инструментов: переменная TOOLS_FILE, секретный файл Render, либо data/tools.json
+# Каталог живёт в базе (таблица catalog_nodes). Файл ниже нужен только для первого переноса в пустую базу
+# и как запасной вариант, если база недоступна при запуске: переменная TOOLS_FILE, секретный файл Render, либо data/tools.json
 TOOLS_PATHS = [p for p in (os.environ.get("TOOLS_FILE"), "/etc/secrets/tools.json", str(BASE / "data" / "tools.json")) if p]
 
 
@@ -473,6 +475,14 @@ async def status_loop(bot: Bot):
         await asyncio.sleep(900)
 
 
+async def catalog_loop():
+    """Раз в 20 секунд смотрим, не правили ли каталог напрямую в Supabase (запрос на 1 строку)."""
+    while True:
+        await asyncio.sleep(20)
+        if pool is not None:
+            await cat.poll(pool)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
@@ -483,6 +493,10 @@ async def lifespan(app: FastAPI):
                                      command_timeout=10, timeout=15, **ssl_kw)
     async with pool.acquire() as c:
         await c.execute(SCHEMA)
+    try:                                  # каталог: таблица, перенос из tools.json в пустую базу, загрузка в память
+        await cat.init(pool, tools_file_json())
+    except Exception as e:
+        log.error("каталог из базы не загружен, работаем с файлом: %s", e)
 
     if not ADMIN_NETS:
         log.warning("ADMIN_IP не задан — админка закрыта для всех")
@@ -509,6 +523,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(dp.start_polling(bot, handle_signals=False)),
         asyncio.create_task(self_ping()),
         asyncio.create_task(status_loop(bot)),
+        asyncio.create_task(catalog_loop()),
     ]
     yield
     await assistant.aclose()
@@ -602,11 +617,11 @@ def access_key(request: Request, fallback: str = "") -> str:
     return (request.headers.get("x-access-key") or fallback or "").strip()
 
 
-# ---- список инструментов: читаем файл один раз и держим в памяти (файл сами не светим и не парсим на каждый запрос)
+# ---- файл со списком инструментов: только для первого переноса в базу и как запасной вариант
 _tools_cache = {"body": None, "path": None, "mtime": None, "checked": 0.0}
 
 
-def tools_json() -> bytes | None:
+def tools_file_json() -> bytes | None:
     now = time.monotonic()
     if _tools_cache["body"] is not None and now - _tools_cache["checked"] < 30:
         return _tools_cache["body"]
@@ -627,6 +642,11 @@ def tools_json() -> bytes | None:
         _tools_cache.update(body=body, path=p, mtime=mtime)
         return body
     return _tools_cache["body"]
+
+
+def tools_json() -> bytes | None:
+    """Каталог для сайта, ИИ, бота и проверки статусов: готовые байты из памяти (собраны из базы), в базу на запрос не ходим."""
+    return cat.body() or tools_file_json()
 
 
 @app.get("/api/tools")
@@ -769,6 +789,7 @@ async def status_api(request: Request, k: str = ""):
         "select tool, kind, state, message, extract(epoch from now() - checked_at)::int as age from tool_status")
     out = {r["tool"]: {"s": r["state"], "m": r["message"], "k": r["kind"], "a": r["age"], "bad": r["state"] in mon.BAD}
            for r in rows}
+    out.update(cat.manual_status())          # статус, выставленный админом вручную, главнее автопроверки
     return JSONResponse(out, headers=NOSTORE)
 
 
@@ -1288,6 +1309,70 @@ async def admin_user(request: Request, tg_id: int = ApiPath(ge=0, le=10**15)):
         "ips": [dict(r) for r in ips], "sessions": [dict(r) for r in sessions],
         "tools": [dict(r) for r in tools_], "events": [dict(r) for r in events],
     })
+
+
+# ---- каталог: правка через админку
+async def _cat_call(coro):
+    try:
+        res = await coro
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400, headers=NOSTORE)
+    except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
+        log.warning("каталог: ошибка базы: %s", e)
+        return JSONResponse({"error": "База недоступна, попробуйте ещё раз"}, status_code=503, headers=NOSTORE)
+    return JSONResponse({"ok": True, "id": res if isinstance(res, int) else None}, headers=NOSTORE)
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        d = await request.json()
+    except Exception:
+        raise HTTPException(400)
+    if not isinstance(d, dict):
+        raise HTTPException(400)
+    return d
+
+
+@app.get("/admin/api/catalog")
+async def admin_catalog(request: Request):
+    guard(request)
+    return JSONResponse(await cat.admin_list(pool), headers=NOSTORE)
+
+
+@app.get("/admin/api/catalog/export")
+async def admin_catalog_export(request: Request):
+    """Резервная копия каталога в формате прежнего tools.json."""
+    guard(request)
+    body = cat.body()
+    if body is None:
+        raise HTTPException(503)
+    return Response(body, media_type="application/json",
+                    headers={**NOSTORE, "Content-Disposition": 'attachment; filename="tools.json"'})
+
+
+@app.post("/admin/api/catalog/create")
+async def admin_catalog_create(request: Request):
+    guard(request)
+    return await _cat_call(cat.create(pool, await _json_body(request)))
+
+
+@app.post("/admin/api/catalog/update")
+async def admin_catalog_update(request: Request):
+    guard(request)
+    return await _cat_call(cat.update(pool, await _json_body(request)))
+
+
+@app.post("/admin/api/catalog/delete")
+async def admin_catalog_delete(request: Request):
+    guard(request)
+    return await _cat_call(cat.delete(pool, (await _json_body(request)).get("id")))
+
+
+@app.post("/admin/api/catalog/move")
+async def admin_catalog_move(request: Request):
+    guard(request)
+    d = await _json_body(request)
+    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")))
 
 
 # ====================== страницы и поддомены ======================
