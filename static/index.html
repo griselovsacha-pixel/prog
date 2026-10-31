@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harledy Project — сборник инструментов</title>
-<link rel="stylesheet" href="/style.css?v=9">
+<script src="/intro-gate.js?v=1"></script>
+<link rel="stylesheet" href="/style.css?v=11">
 </head>
 <body class="intro">
 <div id="hud" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
@@ -26,7 +27,10 @@
   <a id="navCollab" href="/collab">Сотрудничество</a>
   <a id="navAi" href="/ai">AI</a>
 </nav>
-<button id="theme" type="button">Light Mode</button>
+<div id="topr">
+  <a id="navTerms" href="/terms"><span class="full">Пользовательское соглашение</span><span class="short">Соглашение</span></a>
+  <button id="theme" type="button">Light Mode</button>
+</div>
 <div id="search" role="search" hidden>
   <div class="sbox">
     <label class="sfield">
@@ -34,7 +38,7 @@
       <input id="q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100" placeholder="Поиск: инструмент, тег или категория…" aria-label="Поиск по каталогу" role="combobox" aria-expanded="false" aria-controls="sres" aria-autocomplete="list">
       <button id="qclear" type="button" aria-label="Очистить поиск" hidden>&times;</button>
     </label>
-    <a id="aiBtn" href="/ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/></svg>Harledy AI</a>
+    <a id="aiBtn" href="/ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/></svg>Harledy AI</a>
   </div>
   <div id="sres" role="listbox" hidden></div>
 </div>
@@ -71,7 +75,7 @@
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="/search.js?v=9"></script>
-<script src="/app.js?v=9"></script>
+<script src="/search.js?v=10"></script>
+<script src="/app.js?v=10"></script>
 </body>
 </html>
