@@ -4,36 +4,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI — Harledy Project</title>
-<script src="/pages.js?v=6"></script>
-<link rel="stylesheet" href="/pages.css?v=8">
+<link rel="stylesheet" href="/pages.css?v=9">
 <style>
-.top{position:static}
-.wrap{max-width:760px;padding:40px 24px 0;display:flex;flex-direction:column;min-height:calc(100vh - 63px)}
-.ai-head{margin-bottom:22px}
-.ai-head h1{font-size:clamp(26px,4vw,34px);margin-bottom:10px}
-.hello{font-size:16.5px;line-height:1.7;color:var(--fg);max-width:56ch;margin-bottom:18px}
-.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px}
-.chip{font:inherit;font-size:13.5px;color:var(--fg);background:none;border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer;text-align:left;transition:color .15s,border-color .15s}
-.chip:hover{color:var(--fg-h);border-color:var(--fg)}
-#log{display:flex;flex-direction:column;gap:14px;flex:1;padding-bottom:18px}
-.msg{max-width:92%;padding:12px 16px;border-radius:10px;font-size:15.5px;line-height:1.7;overflow-wrap:anywhere;animation:fade .25s both}
-.msg.user{align-self:flex-end;color:var(--fg-h);background:var(--hover);border:1px solid var(--line);white-space:pre-wrap}
+.wrap{max-width:760px;padding:84px 24px 0;display:flex;flex-direction:column;min-height:100vh}
+.wrap>*{animation:none}
+/* фирменная надпись — как на главной */
+.head{text-align:center;margin-bottom:26px}
+.head h1{display:flex;align-items:center;justify-content:center;gap:12px;font-size:clamp(28px,6vw,40px);font-weight:800;color:var(--fg-h);line-height:1.15;margin:0;letter-spacing:0}
+.head h1 svg{width:clamp(24px,5vw,32px);height:clamp(24px,5vw,32px)}
+.lupa *{stroke-dasharray:60;stroke-dashoffset:60;animation:draw .7s ease forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.tag{margin-top:2px;padding-left:.34em;font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:var(--mute)}
+.hello{max-width:600px;margin:0 auto 18px;text-align:center;font-size:17px;line-height:1.7;color:var(--fg-h);opacity:.88}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 auto 22px;max-width:640px}
+.chip{font:inherit;font-size:13px;color:var(--fg);background:none;border:1px solid var(--line);border-radius:99px;padding:6px 14px;cursor:pointer;transition:color .2s,border-color .2s}
+.chip:hover{color:var(--fg-h);border-color:var(--accent)}
+#log{display:flex;flex-direction:column;gap:12px;flex:1;padding-bottom:18px}
+.msg{max-width:92%;padding:13px 17px;border-radius:16px;font-size:15.5px;line-height:1.7;overflow-wrap:anywhere;animation:rise .35s both}
+.msg.user{align-self:flex-end;color:var(--fg-h);background:rgba(79,134,179,.14);border:1px solid rgba(79,134,179,.4);white-space:pre-wrap}
 .msg.ai{align-self:flex-start;width:100%;max-width:100%;background:var(--card);border:1px solid var(--line)}
-.msg.err{border-color:#b8605c}
+.msg.err{border-color:rgba(200,90,90,.55)}
 .msg p{margin:0 0 9px}
 .msg p:last-child,.msg ul:last-child,.msg ol:last-child{margin-bottom:0}
 .msg ul,.msg ol{margin:0 0 9px;padding-left:22px}
 .msg li{margin:3px 0}
-.msg b{color:var(--fg-h);font-weight:600}
-.msg a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
-.msg a:hover{color:var(--fg-h)}
-.msg code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;padding:1px 6px;border-radius:4px;background:var(--hover)}
+.msg b{color:var(--fg-h)}
+.msg a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(79,134,179,.4);word-break:break-all}
+.msg a:hover{color:var(--fg-h);border-color:var(--fg-h)}
+.msg code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;padding:1px 6px;border-radius:6px;background:rgba(127,127,127,.15)}
 .tgrow{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
-.msg a.btn-tg{color:#fff;text-decoration:none;word-break:normal}
-.msg a.btn-tg:hover{color:#fff}
+.msg .btn-tg,.btn-tg{display:inline-flex;align-items:center;justify-content:center;gap:9px;color:#fff;text-decoration:none;border:0;font-weight:700;font-size:15px;padding:11px 20px;border-radius:12px;
+  background:linear-gradient(135deg,#2aabee,#229ed9);box-shadow:0 6px 18px rgba(34,158,217,.28);transition:transform .15s,box-shadow .15s,filter .15s}
+.msg .btn-tg:hover{color:#fff;transform:translateY(-2px);box-shadow:0 10px 24px rgba(34,158,217,.38);filter:brightness(1.06)}
+.btn-tg svg{width:18px;height:18px;flex:none}
 @media (max-width:560px){.tgrow .btn-tg{width:100%}}
-
-/* ожидание ответа: светящийся «шар» с орбитами, мерцающий статус и скелетон-строки */
+/* ---------- анимация ожидания ответа ---------- */
 .msg.thinking{position:relative;overflow:hidden;padding:16px 18px}
 .msg.thinking::before{content:"";position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(110deg,transparent 35%,rgba(124,92,255,.11) 50%,transparent 65%) 100% 0/250% 100%;animation:shimmer 3.2s linear infinite}
@@ -72,7 +77,16 @@
 #form.busy{border-color:transparent;background:linear-gradient(var(--card),var(--card)) padding-box,
   linear-gradient(90deg,#2aabee,#7c5cff,#2aabee) border-box;background-size:auto,200% 100%;animation:flow 2s linear infinite}
 @keyframes flow{to{background-position:0 0,-200% 0}}
-
+.composer{position:sticky;bottom:0;padding:12px 0 18px;background:linear-gradient(transparent,var(--bg) 24%)}
+#form{display:flex;gap:10px;align-items:flex-end;padding:10px;border:1px solid var(--line);border-radius:16px;background:var(--card);transition:border-color .2s}
+#form:focus-within{border-color:var(--accent)}
+#q{flex:1;resize:none;max-height:160px;min-height:26px;border:0;outline:0;background:none;color:var(--fg-h);font:inherit;font-size:15.5px;line-height:1.6;padding:4px 6px}
+#q::placeholder{color:var(--mute)}
+#send{flex:none;width:42px;height:42px;display:grid;place-items:center;border:1px solid rgba(79,134,179,.55);border-radius:12px;color:var(--accent);background:rgba(79,134,179,.12);cursor:pointer;transition:color .2s,background .2s,opacity .2s}
+#send:hover:not(:disabled){color:#fff;background:var(--accent)}
+#send:disabled{opacity:.45;cursor:default}
+#send svg{width:20px;height:20px}
+.fine{margin-top:8px;text-align:center;font-size:12px;color:var(--mute)}
 /* маленькие кнопки под названием и описанием инструмента */
 .tbtns{display:flex;flex-wrap:wrap;gap:8px 14px;margin:8px 0 4px}
 .tb-set{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px}
@@ -88,35 +102,20 @@
 .tst.ok::before{background:#5fb98a}.tst.bad::before{background:#e0706a}
 .msg li .tbtns{margin:6px 0 2px}
 
-.composer{position:sticky;bottom:0;padding:12px 0 18px;background:linear-gradient(transparent,var(--bg) 24%)}
-#form{display:flex;gap:10px;align-items:flex-end;padding:8px 8px 8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);transition:border-color .2s}
-#form:focus-within,#form.busy{border-color:var(--accent)}
-#q{flex:1;resize:none;max-height:160px;min-height:26px;border:0;outline:0;background:none;color:var(--fg-h);font:inherit;font-size:15.5px;line-height:1.6;padding:6px 4px}
-#q::placeholder{color:var(--mute)}
-#send{flex:none;width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:8px;color:#fff;background:var(--accent);cursor:pointer;transition:filter .15s,opacity .2s}
-#send:hover:not(:disabled){filter:brightness(1.12)}
-#send:disabled{opacity:.35;cursor:default}
-#send svg{width:19px;height:19px}
-.fine{margin-top:8px;font-size:12.5px;color:var(--mute)}
-@media (max-width:560px){.wrap{padding:28px 16px 0}.msg{max-width:100%}.fine{display:none}}
-@media (prefers-reduced-motion:reduce){.msg{animation:none}.msg.thinking::before,.orb .sat,.sk b::after,#form.busy{animation:none}.orb .core{animation:none}.orb .ring{animation-duration:4s}.shim{animation:none;color:var(--mute);background:none;-webkit-background-clip:border-box;background-clip:border-box}}
+@media (max-width:560px){.wrap{padding:76px 16px 0}.msg{max-width:100%}.fine{display:none}}
+@media (prefers-reduced-motion:reduce){.msg{animation:none}.lupa *{animation:none;stroke-dashoffset:0}
+  .msg.thinking::before,.orb .sat,.sk b::after,#form.busy{animation:none}.orb .core{animation:none}.orb .ring{animation-duration:4s}.shim{animation:none;color:var(--mute);background:none;-webkit-background-clip:border-box;background-clip:border-box}}
 </style>
 </head>
 <body>
-<header class="top"><div class="top-in">
-  <a id="back" class="home" data-home href="/#nointro">← На главную</a>
-  <a class="logo" data-home href="/#nointro" aria-label="Harledy Project — на главную"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy Project</a>
-  <nav class="menu" aria-label="Разделы">
-    <a href="/about">О нас</a>
-    <a href="/collab">Сотрудничество</a>
-    <a href="/ai" aria-current="page">AI</a>
-    <a class="terms" href="/terms"><span class="full">Пользовательское соглашение</span><span class="short">Соглашение</span></a>
-  </nav>
-</div></header>
+<div class="bar"><a id="back" class="pill" data-home href="/#nointro">← На главную</a><a class="pill" href="/terms"><span class="full">Пользовательское соглашение</span><span class="short">Соглашение</span></a></div>
 <main class="wrap">
-  <header class="ai-head">
-    <p class="kicker">Ассистент</p>
-    <h1>Harledy AI</h1>
+  <header class="head">
+    <h1>
+      <svg class="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <span>Harledy Project</span>
+    </h1>
+    <p class="tag">AI</p>
   </header>
 
   <section id="intro">
