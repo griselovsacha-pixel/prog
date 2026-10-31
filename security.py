@@ -209,8 +209,9 @@ def classify(path: str) -> str:
 
 
 # ---------------------------------------------------------------- заголовки безопасности
+D3_URL = "https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"   # единственный внешний скрипт сайта
 CSP_PUBLIC = (
-    "default-src 'none'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; "
+    f"default-src 'none'; script-src 'self' {D3_URL}; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors 'none'; object-src 'none'"
 )
@@ -226,7 +227,7 @@ def _inline_hashes(html: str, tag: str) -> list[str]:
 
 def admin_csp(html: str) -> str:
     """CSP админки: встроенные <script>/<style> разрешены только по хэшу, остальное — свои файлы."""
-    sc = " ".join(["'self'", "https://cdnjs.cloudflare.com", *_inline_hashes(html, "script")])
+    sc = " ".join(["'self'", D3_URL, *_inline_hashes(html, "script")])
     st = " ".join(["'self'", *_inline_hashes(html, "style")])
     return (f"default-src 'none'; script-src {sc}; style-src {st}; style-src-attr 'unsafe-inline'; "
             "img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; "
