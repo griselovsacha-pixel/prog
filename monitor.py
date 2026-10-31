@@ -23,7 +23,7 @@ import socket
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -174,9 +174,30 @@ def _blocked_host(url: str) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(host)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+        return not ip.is_global
     except ValueError:
         return False
+
+
+async def _resolves_public(url: str) -> bool:
+    """False, если адрес (в т.ч. после DNS-резолва) ведёт во внутреннюю сеть или на облачные метаданные (169.254.169.254).
+    Домен, который не резолвится, пропускаем: aiohttp сам вернёт понятную ошибку DNS."""
+    if ALLOW_PRIVATE:
+        return True
+    if _blocked_host(url):
+        return False
+    u = _split(url)
+    host = (u.hostname if u else "") or ""
+    try:
+        ipaddress.ip_address(host)
+        return True                                    # IP-литерал уже проверен выше
+    except ValueError:
+        pass
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError):
+        return True
+    return all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
 
 
 def _err(code: int | None, title: str, todo: str) -> Result:
@@ -187,10 +208,25 @@ def _err(code: int | None, title: str, todo: str) -> Result:
 async def _site_once(session: aiohttp.ClientSession, url: str) -> tuple[Result, bool]:
     """Один заход на сайт. Второе значение — стоит ли повторить (сбой мог быть случайным)."""
     try:
-        async with session.get(url, allow_redirects=True, max_redirects=8) as r:
-            body = await asyncio.wait_for(r.content.read(262144), SITE_TIMEOUT)
-            code = r.status
-            server = (r.headers.get("server") or "").lower()
+        cur, hops = url, 0
+        while True:                                    # редиректы ведём сами: каждый шаг проверяем на «внутренний адрес» (SSRF)
+            if not await _resolves_public(cur):
+                return Result(UNKNOWN, "Автопроверка пропущена: адрес указывает на внутреннюю сеть"), False
+            async with session.get(cur, allow_redirects=False) as r:
+                loc = r.headers.get("location")
+                if r.status in (301, 302, 303, 307, 308) and loc:
+                    hops += 1
+                    if hops > 8:
+                        raise aiohttp.TooManyRedirects(r.request_info, r.history)
+                    cur = urljoin(cur, loc)
+                    if urlsplit(cur).scheme not in ("http", "https"):
+                        return _err(None, "Перенаправление на недопустимый адрес",
+                                    "адрес в каталоге мог устареть, сообщите администратору."), False
+                    continue
+                body = await asyncio.wait_for(r.content.read(262144), SITE_TIMEOUT)
+                code = r.status
+                server = (r.headers.get("server") or "").lower()
+                break
     except asyncio.TimeoutError:
         return _err(None, f"Сайт не ответил за {SITE_TIMEOUT} секунд",
                     "попробуйте открыть позже, сервер может быть перегружен; при необходимости используйте зеркало."), True
