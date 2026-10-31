@@ -320,7 +320,7 @@ function render(s) {
   lineChart($('#chVisits'), [{name: 'Посетители', color: '#4f86b3', values: s.visitors_daily}]);
   barChart($('#chHours'), s.hours);
   bars($('#tools'), s.tools.map(t => { const p = t.tool.split(' › ');
-    return {name: p[p.length - 1], v: t.sel, meta: `${p.slice(0, -1).join(' › ')}<br>выбрали <b style="color:#fff">${t.sel}</b> · людей ${t.people} · в бота ${t.bot} · вечная ${t.eternal}`}; }),
+    return {name: p[p.length - 1], v: t.sel, meta: `${esc(p.slice(0, -1).join(' › '))}<br>выбрали <b style="color:#fff">${t.sel}</b> · людей ${t.people} · в бота ${t.bot} · вечная ${t.eternal}`}; }),
     'Пока никто не открывал инструменты');
   const dt = s.devices.reduce((a, d) => a + d.c, 0) || 1;
   bars($('#devices'), s.devices.map(d => ({name: d.dev, v: d.c, meta: `${d.c} · ${Math.round(d.c / dt * 100)}%`})), 'Пока нет сессий');
