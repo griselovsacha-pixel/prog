@@ -107,7 +107,34 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
 .gate .code{letter-spacing:.5em;text-align:center;font-size:22px}
 .gate button{width:100%;background:var(--blue);color:#fff;border:0;border-radius:10px;padding:12px;font-weight:700;margin-top:4px}
 .err{color:#e5736f;min-height:20px;margin-top:10px;font-size:13px}
-@media (max-width:700px){.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}.ulist{grid-template-columns:1fr}main{padding:14px}}
+
+.cbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.cbar input{flex:1;min-width:200px;background:var(--card);border:1px solid var(--line);color:var(--hi);padding:10px 14px;border-radius:10px;font:inherit}
+.btn{background:none;border:1px solid var(--line);color:var(--fg);padding:6px 12px;border-radius:8px}
+.btn:hover{border-color:var(--fg);color:var(--hi)}
+.btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.del:hover{border-color:#e5736f;color:#e5736f}
+.btn.sm{padding:2px 9px;font-size:12px}
+.ctree{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 14px}
+.cr{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #2a2a2a;flex-wrap:wrap}
+.cr:last-child{border:0}
+.cr .nm{color:var(--hi);font-weight:600;flex:1;min-width:120px;overflow-wrap:anywhere}
+.cr.cat .nm{cursor:pointer;font-weight:800}
+.cr .sub{color:var(--mute);font-size:12px}
+.cr .acts{display:flex;gap:4px;flex-wrap:wrap}
+.cr select{background:#181818;color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:3px 6px;font:inherit;font-size:12px}
+.cr select.s-ok{color:var(--green);border-color:#2f5a45}
+.cr select.s-bad{color:#e5736f;border-color:#6b3533}
+#cmodal{position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.6);display:grid;place-items:start center;overflow:auto;padding:30px 14px}
+#cmodal[hidden]{display:none}
+.cform{width:min(640px,100%);background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+.cform label{display:block;font-size:12px;color:var(--mute);margin:12px 0 4px}
+.cform input,.cform select,.cform textarea{width:100%;background:#181818;border:1px solid var(--line);color:var(--hi);padding:9px 12px;border-radius:9px;font:inherit}
+.cform textarea{min-height:80px;resize:vertical}
+.cform .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cform .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.cform .err{min-height:18px}
+@media (max-width:700px){.cform .two{grid-template-columns:1fr}.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}.ulist{grid-template-columns:1fr}main{padding:14px}}
 </style>
 </head>
 <body class="locked">
@@ -115,7 +142,7 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
   <header class="top">
     <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy · Admin</div>
     <nav class="tabs">
-      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button>
+      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button>
     </nav>
     <div class="right"><span><i class="dot"></i><b id="liveN">—</b> онлайн</span><button id="logout">Выйти</button></div>
   </header>
@@ -148,6 +175,15 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
       </div>
       <div id="detail"></div>
     </section>
+
+    <section id="tab-catalog" hidden>
+      <div class="cbar"><input id="cq" placeholder="Поиск по каталогу" autocomplete="off">
+        <button class="btn pri" id="cNewRoot">+ Ветка от Harledy Project</button>
+        <button class="btn" id="cExport">Скачать JSON</button></div>
+      <div class="ctree" id="ctree"><div class="empty">Загрузка…</div></div>
+      <p class="mute" style="margin-top:10px;font-size:12px">Статус «Авто» — решает ежедневная проверка. Если выбрать вручную, проверка этот инструмент пропускает, пока не вернёте «Авто». Изменения видны на сайте сразу.</p>
+    </section>
+    <div id="cmodal" hidden><form class="cform" id="cform"></form></div>
   </main>
 </div>
 
@@ -410,6 +446,125 @@ document.addEventListener('click', e => {
   else if (t.classList.contains('ip')) { $('#q').value = t.dataset.ip; search(); window.scrollTo({top: 0}); }
 });
 
+
+/* ---------- каталог ---------- */
+let CAT = [], CAT_LOADED = false, CAT_OPEN = new Set(), CAT_Q = '';
+const ST_OPT = [['', 'Авто'], ['ok', 'Работает'], ['no_reply', 'Не отвечает'], ['deleted', 'Удалён']];
+const AUTO_TXT = {ok: 'авто: работает', no_reply: 'авто: не отвечает', deleted: 'авто: удалён', site_error: 'авто: ошибка', unknown: 'авто: не проверить'};
+const byParent = () => { const m = {}; CAT.forEach(n => (m[n.parent_id == null ? 'root' : n.parent_id] ||= []).push(n)); Object.values(m).forEach(a => a.sort((x, y) => x.pos - y.pos || x.id - y.id)); return m; };
+async function loadCatalog() {
+  const r = await api('catalog'); if (!r.ok) { $('#ctree').innerHTML = '<div class="empty">Не удалось загрузить каталог</div>'; return; }
+  CAT = r.data.nodes; CAT_LOADED = true;
+  if (!CAT_OPEN.size) CAT.filter(n => n.kind === 'category').forEach(n => CAT_OPEN.add(n.id));
+  renderCatalog();
+}
+function catMatch(n, q, kids) {
+  if (!q) return true;
+  if ([n.name, n.desc, n.bot, ...(n.tags || [])].join(' ').toLowerCase().includes(q)) return true;
+  return (kids[n.id] || []).some(c => catMatch(c, q, kids));
+}
+function renderCatalog() {
+  const kids = byParent(), q = CAT_Q.toLowerCase(), out = [];
+  const walk = (n, depth) => {
+    if (!catMatch(n, q, kids)) return;
+    const pad = `style="padding-left:${depth * 22}px"`;
+    if (n.kind === 'category') {
+      const open = q || CAT_OPEN.has(n.id), c = (kids[n.id] || []).length, root = n.parent_id == null;
+      out.push(`<div class="cr cat" ${pad} data-id="${n.id}"><span class="nm" data-a="tog">${open ? '▾' : '▸'} ${esc(n.name)} <span class="sub">(${c})</span></span><span class="acts">
+        <button class="btn sm" data-a="addcat">+ ветка</button><button class="btn sm" data-a="addtool">+ инструмент</button>
+        <button class="btn sm" data-a="edit">✎</button>${root ? '' : '<button class="btn sm" data-a="up">↑</button><button class="btn sm" data-a="down">↓</button><button class="btn sm del" data-a="del">✕</button>'}</span></div>`);
+      if (open) (kids[n.id] || []).forEach(k => walk(k, depth + 1));
+    } else {
+      const cls = n.mstatus ? (n.mstatus === 'ok' ? 's-ok' : 's-bad') : '';
+      const sel = ST_OPT.map(([v, t]) => `<option value="${v}"${(n.mstatus || '') === v ? ' selected' : ''}>${t}</option>`).join('');
+      const auto = !n.mstatus && n.auto_state ? `<span class="sub">${AUTO_TXT[n.auto_state] || ''}</span>` : '';
+      out.push(`<div class="cr" ${pad} data-id="${n.id}"><span class="nm">${esc(n.name)}</span>${auto}
+        <select class="${cls}" data-a="status">${sel}</select><span class="acts">
+        <button class="btn sm" data-a="edit">✎</button><button class="btn sm" data-a="up">↑</button><button class="btn sm" data-a="down">↓</button><button class="btn sm del" data-a="del">✕</button></span></div>`);
+    }
+  };
+  CAT.filter(n => n.parent_id == null).forEach(n => walk(n, 0));
+  $('#ctree').innerHTML = out.join('') || '<div class="empty">Ничего не найдено</div>';
+}
+async function catPost(path, body) {
+  const r = await api('catalog/' + path, body);
+  if (!r.ok) { alert(r.data.error || 'Ошибка'); return false; }
+  await loadCatalog(); return true;
+}
+function catOptions(excludeId, selected) {
+  const kids = byParent(), out = [];
+  const bad = new Set(); const mark = id => { bad.add(id); (kids[id] || []).forEach(k => mark(k.id)); };
+  if (excludeId) mark(excludeId);
+  const walk = (n, path) => { if (n.kind !== 'category' || bad.has(n.id)) return; const p = path ? path + ' › ' + n.name : n.name;
+    out.push(`<option value="${n.id}"${n.id === selected ? ' selected' : ''}>${esc(p)}</option>`); (kids[n.id] || []).forEach(k => walk(k, p)); };
+  CAT.filter(n => n.parent_id == null).forEach(n => walk(n, ''));
+  return out.join('');
+}
+function openForm(mode, kind, node, parentId) {
+  const isTool = kind === 'tool', n = node || {}, root = node && node.parent_id == null;
+  const opt = (arr, cur) => arr.map(([v, t]) => `<option value="${v}"${(cur || arr[0][0]) === v ? ' selected' : ''}>${t}</option>`).join('');
+  const extra = (n.extra || []).map(e => `${e.k} | ${e.t}`).join('\n');
+  const title = (mode === 'new' ? 'Новый ' : 'Изменить: ') + (isTool ? 'инструмент' : 'ветка');
+  $('#cform').innerHTML = `<h3>${title}</h3>
+    <label>Название</label><input name="name" maxlength="60" value="${esc(n.name || '')}" required>
+    ${root ? '' : `<label>Где находится</label><select name="parent_id">${catOptions(node && node.id, node ? node.parent_id : parentId)}</select>`}
+    ${isTool ? `
+    <label>Описание</label><textarea name="desc">${esc(n.desc || '')}</textarea>
+    <div class="two"><div><label>Ссылка (бот или сайт)</label><input name="bot" value="${esc(n.bot || '')}" placeholder="https://t.me/..."></div>
+    <div><label>Вечная ссылка / зеркало</label><input name="eternal" value="${esc(n.eternal || '')}" placeholder="https://..."></div></div>
+    <div class="two"><div><label>Тип</label><select name="type">${opt([['bot','Бот'],['site','Сайт'],['bot+site','Бот + сайт'],['bot+miniapp','Бот + мини-приложение']], n.type)}</select></div>
+    <div><label>Статус</label><select name="mstatus">${opt(ST_OPT, n.mstatus || '')}</select></div></div>
+    <div class="two"><div><label>Цена</label><select name="price">${opt([['unknown','Не заполнено'],['free','Бесплатно'],['freemium','Есть бесплатные запросы'],['paid','Платно']], n.price)}</select></div>
+    <div><label>Текст цены (необязательно)</label><input name="price_text" maxlength="120" value="${esc(n.price_text || '')}"></div></div>
+    <div class="two"><div><label>VPN</label><select name="vpn">${opt([['unknown','Не заполнено'],['no','Работает без VPN'],['yes','Нужен VPN']], n.vpn)}</select></div>
+    <div><label>Текст VPN (необязательно)</label><input name="vpn_text" maxlength="120" value="${esc(n.vpn_text || '')}"></div></div>
+    <label>Веб-версия</label><select name="web">${opt([['','Не указано'],['1','Есть'],['0','Нет']], n.web == null ? '' : (n.web ? '1' : '0'))}</select>
+    <label>Теги (через запятую)</label><input name="tags" value="${esc((n.tags || []).join(', '))}">
+    <label>Другие названия (через запятую)</label><input name="aka" value="${esc((n.aka || []).join(', '))}">
+    <label>Бирки: по строке «ключ | текст», например reg | Требует регистрацию</label><textarea name="extra">${esc(extra)}</textarea>
+    <label>Заметка</label><input name="note" maxlength="300" value="${esc(n.note || '')}">` : ''}
+    <div class="err" id="cerr"></div>
+    <div class="foot"><button type="button" class="btn" id="cCancel">Отмена</button><button type="submit" class="btn pri">Сохранить</button></div>`;
+  $('#cmodal').hidden = false;
+  $('#cCancel').onclick = () => { $('#cmodal').hidden = true; };
+  $('#cform').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData($('#cform')), body = {name: f.get('name')};
+    if (f.has('parent_id')) body.parent_id = +f.get('parent_id');
+    if (isTool) {
+      ['desc','bot','eternal','type','price','price_text','vpn','vpn_text','note','tags','aka','mstatus'].forEach(k => body[k] = f.get(k));
+      body.web = f.get('web') === '' ? null : f.get('web') === '1';
+      body.extra = String(f.get('extra')).split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf('|'); return i < 0 ? {k: 'info', t: l} : {k: l.slice(0, i).trim(), t: l.slice(i + 1).trim()}; });
+    }
+    let r;
+    if (mode === 'new') r = await api('catalog/create', {...body, kind, parent_id: body.parent_id});
+    else r = await api('catalog/update', {...body, id: node.id});
+    if (!r.ok) { $('#cerr').textContent = r.data.error || 'Ошибка'; return; }
+    $('#cmodal').hidden = true; await loadCatalog();
+  };
+  $('#cform').querySelector('input[name=name]').focus();
+}
+$('#ctree').addEventListener('click', async e => {
+  const b = e.target.closest('[data-a]'); if (!b || b.tagName === 'SELECT') return;
+  const row = b.closest('[data-id]'), id = +row.dataset.id, n = CAT.find(x => x.id === id), a = b.dataset.a;
+  if (a === 'tog') { CAT_OPEN.has(id) ? CAT_OPEN.delete(id) : CAT_OPEN.add(id); renderCatalog(); }
+  else if (a === 'addcat') { CAT_OPEN.add(id); openForm('new', 'category', null, id); }
+  else if (a === 'addtool') { CAT_OPEN.add(id); openForm('new', 'tool', null, id); }
+  else if (a === 'edit') openForm('edit', n.kind, n);
+  else if (a === 'up' || a === 'down') catPost('move', {id, dir: a === 'up' ? -1 : 1});
+  else if (a === 'del') {
+    const cnt = n.kind === 'category' ? ` вместе со всем, что внутри (${CAT.filter(x => x.parent_id === id).length} эл. на первом уровне)` : '';
+    if (confirm(`Удалить «${n.name}»${cnt}? Рейтинги этого инструмента тоже удалятся. Отменить нельзя.`)) catPost('delete', {id});
+  }
+});
+$('#ctree').addEventListener('change', e => {
+  const sel = e.target.closest('select[data-a=status]'); if (!sel) return;
+  catPost('update', {id: +sel.closest('[data-id]').dataset.id, mstatus: sel.value});
+});
+$('#cNewRoot').onclick = () => openForm('new', 'category', null, CAT.find(n => n.parent_id == null)?.id);
+$('#cExport').onclick = () => { location.href = '/admin/api/catalog/export'; };
+let cqT; $('#cq').addEventListener('input', e => { clearTimeout(cqT); cqT = setTimeout(() => { CAT_Q = e.target.value.trim(); renderCatalog(); }, 120); });
+
 /* ---------- вход ---------- */
 function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); USERS_LOADED = false; $('#results').innerHTML = ''; $('#detail').innerHTML = ''; $('#listwrap').hidden = false; $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
 function unlock() {
@@ -430,7 +585,8 @@ $('#f2').onsubmit = async e => {
 $('#logout').onclick = async () => { await api('logout', {}); lock(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['bot', 'site', 'users'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  ['bot', 'site', 'users', 'catalog'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  if (b.dataset.tab === 'catalog') loadCatalog();
   if (b.dataset.tab === 'users' && !USERS_LOADED) { USERS_LOADED = true; loadUsers(true); }
 });
 $('#go').onclick = search;
