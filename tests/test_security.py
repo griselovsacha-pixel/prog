@@ -24,9 +24,9 @@ async def _stub(scope, receive, send):
     await send({"type": "http.response.body", "body": b"ok"})
 
 
-async def call(sec, method="GET", path="/", headers=None, body=b"", peer="10.0.0.1", shield=None):
+async def call(sec, method="GET", path="/", headers=None, body=b"", peer="10.0.0.1", shield=None, query=b""):
     shield = shield or sec.Shield(_stub)
-    scope = {"type": "http", "method": method, "path": path, "client": (peer, 1234),
+    scope = {"type": "http", "method": method, "path": path, "query_string": query, "client": (peer, 1234),
              "headers": [(k.lower().encode(), v.encode("latin-1")) for k, v in (headers or {}).items()]}
     sent = []
 
@@ -148,6 +148,33 @@ class ShieldTests(unittest.TestCase):
         csp = sec.admin_csp("<script>alert(1)</script><style>a{}</style><script src=x></script>")
         self.assertIn("'sha256-", csp)
         self.assertNotIn("'unsafe-inline'; img", csp.split("style-src-attr")[0])
+
+    def test_scan_paths_blocked_and_reported(self):
+        sec = load()
+        seen = []
+        sec.ON_EVENT = lambda k, t, b: seen.append((k, t, b))
+        self.assertEqual(self.run_(call(sec, path="/.env"))[0], 404)
+        self.assertEqual(self.run_(call(sec, path="/wp-login.php"))[0], 404)
+        self.assertEqual(self.run_(call(sec, path="/", query=b"q=1%20union%20select%201"))[0], 404)
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(seen[0][0], "scan")
+        self.assertIn("/.env", seen[0][2])
+        self.assertIn("IP:", seen[0][2])
+
+    def test_scan_ips_get_banned(self):
+        sec = load()
+        shield = sec.Shield(_stub)
+        for _ in range(5):
+            self.run_(call(sec, path="/.git/config", peer="198.51.100.77", shield=shield))
+        self.assertEqual(self.run_(call(sec, path="/", peer="198.51.100.77", shield=shield))[0], 429)
+
+    def test_normal_paths_not_flagged(self):
+        sec = load()
+        seen = []
+        sec.ON_EVENT = lambda k, t, b: seen.append(t)
+        for p in ("/", "/ai", "/api/tools", "/collab", "/static/app.js"):
+            self.assertEqual(self.run_(call(sec, path=p, query=b"k=abcdefghijklmnopqrstuvwx"))[0], 200, p)
+        self.assertEqual(seen, [])
 
 
 if __name__ == "__main__":
