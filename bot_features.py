@@ -19,6 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+import alerts
 import security as sec
 
 log = logging.getLogger("harledy.bot")
@@ -113,6 +114,15 @@ def cancel_row(rich: bool):
     return [btn("Вернуться в главное меню", "cancel", "🏠", rich, callback_data="atcancel")]
 
 
+def back_row(rich: bool, data: str = "atback"):
+    return [btn("Назад", "back", "◀️", rich, callback_data=data)]
+
+
+def nav(rich: bool, back: str | None = "atback"):
+    """Нижние кнопки экрана: «Назад» (если задан back) и «Вернуться в главное меню»."""
+    return ([back_row(rich, back)] if back else []) + [cancel_row(rich)]
+
+
 async def show(msg: Message, text: str, kb_fn, edit: bool = False):
     """Отправляет (или редактирует) сообщение с кастом-эмодзи; если Telegram отклонил — обычные смайлики."""
     for rich in (True, False):
@@ -148,15 +158,15 @@ def cat_kb(cats: list[str], page: int, rich: bool):
         eid = CAT_EMOJI.get(n.casefold()) if rich else None
         extra = {"icon_custom_emoji_id": eid} if eid else {}
         rows.append([InlineKeyboardButton(text=n[:60], callback_data=f"atk:{i}", **extra)])
-    nav = []
+    navr = []
     if page > 0:
-        nav.append(btn("Назад", "back", "◀️", rich, callback_data=f"atc:{page - 1}"))
+        navr.append(btn("Назад", "back", "◀️", rich, callback_data=f"atc:{page - 1}"))
     if start + PER_PAGE < len(cats):                       # «вперёд» — только смайл
         eid = BTN["next"]
-        nav.append(InlineKeyboardButton(text="​", icon_custom_emoji_id=eid, callback_data=f"atc:{page + 1}") if rich
-                   else InlineKeyboardButton(text="▶️", callback_data=f"atc:{page + 1}"))
-    if nav:
-        rows.append(nav)
+        navr.append(InlineKeyboardButton(text="​", icon_custom_emoji_id=eid, callback_data=f"atc:{page + 1}") if rich
+                    else InlineKeyboardButton(text="▶️", callback_data=f"atc:{page + 1}"))
+    if navr:
+        rows.append(navr)
     rows.append(cancel_row(rich))
     return kb(rows)
 
@@ -214,6 +224,7 @@ async def add_start(cb: CallbackQuery, state: FSMContext):
     if not cats:
         return await cb.answer("Список категорий пока недоступен, попробуйте позже.", show_alert=True)
     await cb.answer()
+    alerts.notify("tool", "Начал добавлять инструмент", alerts.who(cb.from_user))
     await state.clear()
     await state.set_state(AddTool.category)
     await state.update_data(cats=cats)
@@ -228,47 +239,24 @@ async def add_page(cb: CallbackQuery, state: FSMContext):
     await show(cb.message, cat_text(cats, page), lambda r: cat_kb(cats, page, r), edit=True)
 
 
-@router.callback_query(StateFilter(AddTool.category), F.data.regexp(r"^atk:\d{1,3}$"))
-async def add_category(cb: CallbackQuery, state: FSMContext):
-    cats = (await state.get_data()).get("cats") or []
-    i = int(cb.data[4:])
-    if i >= len(cats):
-        return await cb.answer("Категория не найдена", show_alert=True)
-    await cb.answer()
-    await state.update_data(category=cats[i])
-    await state.set_state(AddTool.kind)
-    await show(cb.message, f"{em('ask_kind')} Выберите, чем является ваш инструмент:",
+# --- экраны диалога (используются и при переходе вперёд, и при «Назад»)
+async def ask_kind(msg: Message, edit: bool = True):
+    await show(msg, f"{em('ask_kind')} Выберите, чем является ваш инструмент:",
                lambda r: kb([[btn("Бот", "bot", "🤖", r, callback_data="att:bot"),
-                              btn("Сайт", "site", "🌐", r, callback_data="att:site")], cancel_row(r)]), edit=True)
+                              btn("Сайт", "site", "🌐", r, callback_data="att:site")], *nav(r)]), edit=edit)
 
 
-@router.callback_query(StateFilter(AddTool.kind), F.data.in_({"att:bot", "att:site"}))
-async def add_kind(cb: CallbackQuery, state: FSMContext):
-    await cb.answer()
-    await state.update_data(kind=cb.data[4:])
-    await state.set_state(AddTool.name)
-    await show(cb.message, f"{em('ask_name')} Введите название инструмента:", lambda r: kb([cancel_row(r)]), edit=True)
+async def ask_name(msg: Message, edit: bool = False):
+    await show(msg, f"{em('ask_name')} Введите название инструмента:", lambda r: kb(nav(r)), edit=edit)
 
 
-@router.message(StateFilter(AddTool.name), F.text)
-async def add_name(m: Message, state: FSMContext):
-    name = " ".join(m.text.split())
-    if not 2 <= len(name) <= 100:
-        return await show(m, f"{em('error')} Название должно быть от 2 до 100 символов. Попробуйте ещё раз:", lambda r: kb([cancel_row(r)]))
-    await state.update_data(name=name)
-    await state.set_state(AddTool.desc)
-    await show(m, f"{em('ask_desc')} Введите описание инструмента:", lambda r: kb([cancel_row(r)]))
+async def ask_desc(msg: Message, edit: bool = False):
+    await show(msg, f"{em('ask_desc')} Введите описание инструмента:", lambda r: kb(nav(r)), edit=edit)
 
 
-@router.message(StateFilter(AddTool.desc), F.text)
-async def add_desc(m: Message, state: FSMContext):
-    desc = m.text.strip()
-    if not 5 <= len(desc) <= 1000:
-        return await show(m, f"{em('error')} Описание должно быть от 5 до 1000 символов. Попробуйте ещё раз:", lambda r: kb([cancel_row(r)]))
-    data = await state.update_data(desc=desc)
-    await state.set_state(AddTool.link)
-    ask = "ссылку или юзернейм бота" if data["kind"] == "bot" else "ссылку на сайт"
-    await show(m, f"{em('ask_link')} Отправьте {ask}:", lambda r: kb([cancel_row(r)]))
+async def ask_link(msg: Message, kind: str, edit: bool = False):
+    ask = "ссылку или юзернейм бота" if kind == "bot" else "ссылку на сайт"
+    await show(msg, f"{em('ask_link')} Отправьте {ask}:", lambda r: kb(nav(r)), edit=edit)
 
 
 def summary(d: dict, link: str) -> str:
@@ -279,22 +267,94 @@ def summary(d: dict, link: str) -> str:
             f"{em('f_link')} Ссылка: {e(link)}")
 
 
+async def ask_confirm(msg: Message, d: dict, link: str, edit: bool = False):
+    await show(msg, f"{em('confirm')} <b>Проверьте данные вашего инструмента:</b>\n\n{summary(d, link)}",
+               lambda r: kb([[btn("Подтвердить", "confirm", "✅", r, callback_data="atok")], *nav(r)]), edit=edit)
+
+
+@router.callback_query(StateFilter(AddTool.category), F.data.regexp(r"^atk:\d{1,3}$"))
+async def add_category(cb: CallbackQuery, state: FSMContext):
+    cats = (await state.get_data()).get("cats") or []
+    i = int(cb.data[4:])
+    if i >= len(cats):
+        return await cb.answer("Категория не найдена", show_alert=True)
+    await cb.answer()
+    await state.update_data(category=cats[i])
+    await state.set_state(AddTool.kind)
+    await ask_kind(cb.message)
+
+
+@router.callback_query(StateFilter(AddTool.kind), F.data.in_({"att:bot", "att:site"}))
+async def add_kind(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.update_data(kind=cb.data[4:])
+    await state.set_state(AddTool.name)
+    await ask_name(cb.message, edit=True)
+
+
+@router.message(StateFilter(AddTool.name), F.text)
+async def add_name(m: Message, state: FSMContext):
+    name = " ".join(m.text.split())
+    if not 2 <= len(name) <= 100:
+        return await show(m, f"{em('error')} Название должно быть от 2 до 100 символов. Попробуйте ещё раз:", lambda r: kb(nav(r)))
+    await state.update_data(name=name)
+    await state.set_state(AddTool.desc)
+    await ask_desc(m)
+
+
+@router.message(StateFilter(AddTool.desc), F.text)
+async def add_desc(m: Message, state: FSMContext):
+    desc = m.text.strip()
+    if not 5 <= len(desc) <= 1000:
+        return await show(m, f"{em('error')} Описание должно быть от 5 до 1000 символов. Попробуйте ещё раз:", lambda r: kb(nav(r)))
+    data = await state.update_data(desc=desc)
+    await state.set_state(AddTool.link)
+    await ask_link(m, data["kind"])
+
+
 @router.message(StateFilter(AddTool.link), F.text)
 async def add_link(m: Message, state: FSMContext):
     d = await state.get_data()
     link = norm_link(d["kind"], m.text)
     if not link:
         hint = "@username или ссылку t.me/…" if d["kind"] == "bot" else "ссылку вида https://example.com"
-        return await show(m, f"{em('error')} Не похоже на ссылку. Отправьте {hint}:", lambda r: kb([cancel_row(r)]))
+        return await show(m, f"{em('error')} Не похоже на ссылку. Отправьте {hint}:", lambda r: kb(nav(r)))
     await state.update_data(link=link)
     await state.set_state(AddTool.confirm)
-    await show(m, f"{em('confirm')} <b>Проверьте данные вашего инструмента:</b>\n\n{summary(d, link)}",
-               lambda r: kb([[btn("Подтвердить", "confirm", "✅", r, callback_data="atok")], cancel_row(r)]))
+    await ask_confirm(m, d, link)
 
 
 @router.message(StateFilter(AddTool.name, AddTool.desc, AddTool.link))
 async def add_not_text(m: Message):
-    await show(m, f"{em('error')} Пожалуйста, отправьте текстовое сообщение.", lambda r: kb([cancel_row(r)]))
+    await show(m, f"{em('error')} Пожалуйста, отправьте текстовое сообщение.", lambda r: kb(nav(r)))
+
+
+@router.callback_query(F.data == "atback")
+async def add_back(cb: CallbackQuery, state: FSMContext):
+    """«Назад» на шаг раньше в диалоге добавления инструмента."""
+    st, d = await state.get_state(), await state.get_data()
+    if st == AddTool.kind.state:
+        cats = d.get("cats") or categories()
+        await state.set_state(AddTool.category)
+        await cb.answer()
+        return await show(cb.message, cat_text(cats, 0), lambda r: cat_kb(cats, 0, r), edit=True)
+    if st == AddTool.name.state:
+        await state.set_state(AddTool.kind)
+        await cb.answer()
+        return await ask_kind(cb.message)
+    if st == AddTool.desc.state:
+        await state.set_state(AddTool.name)
+        await cb.answer()
+        return await ask_name(cb.message, edit=True)
+    if st == AddTool.link.state:
+        await state.set_state(AddTool.desc)
+        await cb.answer()
+        return await ask_desc(cb.message, edit=True)
+    if st == AddTool.confirm.state:
+        await state.set_state(AddTool.link)
+        await cb.answer()
+        return await ask_link(cb.message, d.get("kind", "bot"), edit=True)
+    await cb.answer("Диалог устарел. Нажмите «Вернуться в главное меню».", show_alert=True)
 
 
 SUBMITS = sec.Limiter(3, 3600)       # не больше 3 заявок в час от одного человека: чат админа не заспамить
@@ -322,8 +382,10 @@ async def add_confirm(cb: CallbackQuery, state: FSMContext):
         await cb.answer("Не удалось отправить заявку, попробуйте позже.", show_alert=True)
         return
     log.info("tool submission from user=%s: %r", u.id, d.get("name"))
+    alerts.notify("tool", "Отправил заявку на инструмент",
+                  f"{alerts.who(u)}\n{d.get('name')} / {d.get('category')}\n{d['link']}")
     await cb.answer()
-    await show(cb.message, f"{em('sent')} Заявка отправлена", lambda r: kb([]), edit=True)
+    await show(cb.message, f"{em('sent')} Заявка отправлена", lambda r: kb([cancel_row(r)]), edit=True)
 
 
 @router.callback_query(F.data == "atcancel")
@@ -349,9 +411,11 @@ def boost_url() -> str:
 @router.callback_query(F.data == "support")
 async def support_menu(cb: CallbackQuery):
     await cb.answer()
+    alerts.notify("pay", "Открыл «Поддержать проект»", alerts.who(cb.from_user))
     await show(cb.message, f"<b>Методы которыми вы можете поддержать наш проект</b> {em('support')}",
                lambda r: kb([[btn("Отправить копеечку автору", "tip", "🪙", r, callback_data="sp_tip")],
-                             [btn("Дать буст каналу", "boost", "🚀", r, url=boost_url())]]))
+                             [btn("Дать буст каналу", "boost", "🚀", r, url=boost_url())],
+                             cancel_row(r)]), edit=True)
 
 
 @router.callback_query(F.data == "sp_tip")
@@ -359,7 +423,8 @@ async def support_tip(cb: CallbackQuery):
     await cb.answer()
     await show(cb.message, f"{em('tip')} Выберите способ:",
                lambda r: kb([[btn("Отправить telegram stars", "stars", "⭐", r, url=AUTHOR_PROFILE)],
-                             [btn("Отправить деньги", "money", "💵", r, callback_data="sp_money")]]))
+                             [btn("Отправить деньги", "money", "💵", r, callback_data="sp_money")],
+                             *nav(r, "support")]), edit=True)
 
 
 @router.callback_query(F.data == "sp_money")
@@ -367,7 +432,7 @@ async def support_money(cb: CallbackQuery):
     await cb.answer()
     rows = [[InlineKeyboardButton(text=f"{a}$", callback_data=f"sp_amt:{a}") for a in AMOUNTS[:4]],
             [InlineKeyboardButton(text=f"{a}$", callback_data=f"sp_amt:{a}") for a in AMOUNTS[4:]]]
-    await show(cb.message, f"{em('amount')} Выберите сумму:", lambda r: kb(rows))
+    await show(cb.message, f"{em('amount')} Выберите сумму:", lambda r: kb(rows + nav(r, "sp_tip")), edit=True)
 
 
 # ---- Crypto Pay API (https://help.crypt.bot/crypto-pay-api): счёт на оплату создаём createInvoice
@@ -404,13 +469,16 @@ async def support_amount(cb: CallbackQuery):
             "expires_in": 3600, "allow_comments": False, "allow_anonymous": False})
     except Exception as ex:
         log.warning("createInvoice failed: %s", ex)
-        return await show(cb.message, f"{em('error')} Не удалось создать счёт. Попробуйте позже.", lambda r: kb([]))
+        return await show(cb.message, f"{em('error')} Не удалось создать счёт. Попробуйте позже.",
+                          lambda r: kb(nav(r, "sp_money")), edit=True)
     url = inv.get("bot_invoice_url") or inv.get("pay_url")
     iid = inv["invoice_id"]
+    alerts.notify("pay", "Создан счёт на оплату", f"{alerts.who(cb.from_user)}\n{amount}$, счёт #{iid}")
     await show(cb.message, f"{em('invoice')} Счёт на <b>{amount}$</b> создан. Оплатить можно любой криптовалютой через @CryptoBot.\n"
                            "Счёт действует 1 час. После оплаты нажмите «Проверить оплату».",
                lambda r: kb([[btn("Оплатить", "pay", "💳", r, url=url)],
-                             [btn("Проверить оплату", "check", "🔄", r, callback_data=f"sp_chk:{iid}")]]))
+                             [btn("Проверить оплату", "check", "🔄", r, callback_data=f"sp_chk:{iid}")],
+                             *nav(r, "sp_money")]), edit=True)
 
 
 @router.callback_query(F.data.regexp(r"^sp_chk:\d{1,15}$"))
@@ -433,13 +501,17 @@ async def support_check(cb: CallbackQuery):
             while len(_paid_seen) > 1000:
                 _paid_seen.popitem(last=False)
             u = cb.from_user
+            alerts.notify("pay", "Оплата получена",
+                          f"{alerts.who(u)}\nсчёт #{iid}: {inv.get('amount')} {inv.get('asset') or inv.get('fiat')}")
             try:
                 await cb.bot.send_message(D["admin_id"], plain(f"Получена оплата: {inv.get('amount')} {inv.get('asset') or inv.get('fiat')} "
                                                                f"(счёт на {inv.get('fiat') or ''})\nОт: {e(u.full_name)} ID {u.id}"))
             except TelegramAPIError:
                 pass
-        await show(cb.message, f"Оплата получена! Благодарим вас!!! {em('paid_end') * 4}", lambda r: kb([]), edit=True)
+        await show(cb.message, f"Оплата получена! Благодарим вас!!! {em('paid_end') * 4}",
+                   lambda r: kb([cancel_row(r)]), edit=True)
     elif status == "expired":
         await cb.answer("Счёт истёк. Создайте новый.", show_alert=True)
     else:
+        alerts.notify("pay", "Проверил оплату: не оплачено", alerts.who(cb.from_user))
         await cb.answer("Оплата пока не найдена. Оплатите счёт и нажмите ещё раз.", show_alert=True)
