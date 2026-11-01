@@ -38,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import ai_assistant as ai
+import alerts
 import bot_features as bf
 import catalog as cat
 import monitor as mon
@@ -46,6 +47,11 @@ import security as sec
 logging.basicConfig(level=logging.INFO)
 sec.install_log_masking()   # токены доступа (?k=…) и токен бота не попадают в логи
 log = logging.getLogger("harledy")
+
+# алерты: сканирование сайта, попытки взлома и баны уходят владельцу в личку (без кулдауна)
+sec.ON_EVENT = lambda kind, title, body: alerts.notify(kind, title, body)
+sec.ON_BAN = lambda key, kind, off, secs: alerts.notify(
+    "ban", "Бан по IP", f"{key}\nпричина: {kind}\nнарушение №{off}, бан на {secs // 60} мин")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 DATABASE_URL = os.environ["DATABASE_URL"]  # Supabase pooler URL (порт 6543)
@@ -190,6 +196,26 @@ alter table events enable row level security;
 pool: asyncpg.Pool | None = None
 router = Router()
 
+# ---- подпись пользователя в алертах с сайта (имя берём из базы, кэшируем)
+_names = sec.Bounded(5000)
+
+
+async def uname(uid: int) -> str:
+    n = _names.get(uid)
+    if n is None:
+        r = await pool.fetchrow("select full_name, username from users where tg_id = $1", uid)
+        n = (f"{r['full_name']}" + (f" (@{r['username']})" if r["username"] else "") if r else "?") + f"\nID: {uid}"
+        _names.put(uid, n)
+    return n
+
+
+async def site_alert(kind: str, title: str, uid: int, extra: str = "", ip: str = ""):
+    try:
+        w = await uname(uid)
+    except Exception:
+        w = f"ID: {uid}"
+    alerts.notify(kind, title, w + (f"\n{extra}" if extra else "") + (f"\nIP: {ip}" if ip else ""))
+
 
 # ====================== Telegram-бот ======================
 def emoji(eid: str, fallback: str) -> str:
@@ -216,9 +242,11 @@ async def ensure_user(u) -> str:
            values($1, $2, $3, $4)
            on conflict (tg_id) do update
              set full_name = excluded.full_name, username = excluded.username
-           returning token""",
+           returning token, (xmax = 0) as fresh""",
         u.id, u.full_name, u.username, secrets.token_urlsafe(18),
     )
+    if row["fresh"]:
+        alerts.notify("user", "Новый пользователь", alerts.who(u))
     return row["token"]
 
 
@@ -387,7 +415,9 @@ async def proceed(bot: Bot, u, chat_id: int):
 async def on_start(m: Message, state: FSMContext):
     await state.clear()                       # /start сбрасывает незаконченный диалог «Добавить инструмент»
     await ensure_user(m.from_user)  # ссылка создаётся сразу, при первом контакте
-    if not await has_terms(m.from_user.id):
+    terms = await has_terms(m.from_user.id)
+    alerts.notify("user", "/start", alerts.who(m.from_user) + f"\nсоглашение: {'принято' if terms else 'нет'}")
+    if not terms:
         return await send_terms(m.bot, m.chat.id)
     await proceed(m.bot, m.from_user, m.chat.id)
 
@@ -415,6 +445,7 @@ async def on_accept_terms(cb: CallbackQuery):
     await pool.execute(
         "update users set terms_accepted_at = now() where tg_id = $1 and terms_accepted_at is null", cb.from_user.id)
     _terms_ok.put(cb.from_user.id, True)
+    alerts.notify("terms", "Принял соглашение", alerts.who(cb.from_user))
     await cb.answer("Спасибо! Соглашение принято.")
     try:
         await cb.message.delete()
@@ -435,9 +466,11 @@ async def on_check(cb: CallbackQuery):
             await cb.message.delete()
         except TelegramAPIError:
             pass
+        alerts.notify("join", "Подписка подтверждена («Я подписался»)", alerts.who(cb.from_user))
         await send_menu(cb.bot, cb.from_user)
     else:
         log.info("check_sub: no join request / membership for user=%s", cb.from_user.id)
+        alerts.notify("join", "Нажал «Я подписался», но подписки нет", alerts.who(cb.from_user))
         await cb.answer("Подпишитесь на канал и группу, затем нажмите кнопку ещё раз", show_alert=True)
 
 
@@ -476,6 +509,8 @@ async def on_join_request(req: ChatJoinRequest):
     link = req.invite_link.invite_link if req.invite_link else None
     log.info("join request: user=%s chat_id=%s title=%r link=%s", req.from_user.id, req.chat.id, req.chat.title, link)
     key = required_key(req.chat.id, link)
+    alerts.notify("join", "Заявка в чат",
+                  f"{alerts.who(req.from_user)}\nчат: {req.chat.title} ({key or 'не обязательный'})")
     if not key:
         return
     await pool.execute(                       # новая заявка = человек сейчас не в чате: сбрасываем «состоял»
@@ -494,6 +529,8 @@ async def on_chat_member(ev: ChatMemberUpdated):
     key = required_key(chat_id, link) or ("channel" if chat_id == CHANNEL_ID else "group" if chat_id == GROUP_ID and GROUP_ID else None)
     if not key and not known:
         return
+    alerts.notify("join", "Вход/выход из чата",
+                  f"{alerts.who(ev.new_chat_member.user)}\nчат: {ev.chat.title}\nстатус: {status}")
     _member_ok.pop((chat_id, uid), None)
     if status in ("left", "kicked"):
         await pool.execute("delete from join_requests where tg_id = $1 and chat_id = $2", uid, chat_id)
@@ -590,6 +627,10 @@ async def lifespan(app: FastAPI):
         log.warning("ORIGIN_SECRET не задан: сайт доступен в обход вашего Cloudflare (см. SECURITY.md)")
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    # алерты владельцу в личку: ALERT_CHAT_ID, иначе TOOL_REVIEW_CHAT (этот аккаунт должен хоть раз нажать /start у бота)
+    alerts.install_log_handler()
+    alerts.start(bot, int(os.environ.get("ALERT_CHAT_ID") or TOOL_REVIEW_CHAT), ADMIN_TZ)
+    alerts.notify("start", "Сервер запущен")
     dp = Dispatcher()
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
@@ -608,6 +649,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(catalog_loop()),
     ]
     yield
+    alerts.notify("stop", "Сервер останавливается")
+    await alerts.stop()
     await assistant.aclose()
     for t in tasks:
         t.cancel()
@@ -669,6 +712,8 @@ async def resolve_token(k: str, ip: str = "") -> tuple[int | None, bool]:
     # неправильный формат или заведомо чужой токен — в базу не ходим; повторные попытки ведут к бану
     if not k or not TOKEN_RE.fullmatch(k):
         sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
+        if k:
+            alerts.notify("scan", "Токен доступа неверного формата", f"IP: {ip}\nтокен: {k[:8]!r}")
         return None, False
     now = time.monotonic()
     hit = _tok_cache.get(k)
@@ -682,6 +727,7 @@ async def resolve_token(k: str, ip: str = "") -> tuple[int | None, bool]:
     if not row:
         _bad_tok.put(k, now + 60)
         sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
+        alerts.notify("scan", "Подбор токена: неизвестный токен", f"IP: {ip}\nтокен: {k[:6]}…")
         return None, False
     # принявшего кэшируем надолго; не принявшего — на пару секунд, чтобы после кнопки в боте сайт открылся сразу
     _tok_cache.put(k, (row["tg_id"], row["ok"], now + (600 if row["ok"] else 3)))
@@ -750,6 +796,7 @@ async def tools(request: Request, k: str = ""):
                 "insert into visits(tg_id, ip, user_agent) values($1, $2, $3)",
                 uid, ip, request.headers.get("user-agent", "")[:300],
             )
+            await site_alert("site", "Заход на сайт", uid, request.headers.get("user-agent", "")[:100], ip)
         except Exception as e:                           # сбой статистики не должен ронять сайт
             log.warning("visit insert failed: %s", e)
     body = tools_json()
@@ -773,7 +820,8 @@ async def ai_ask(request: Request, b: AiReq):
     """Вопрос ИИ-ассистенту. Всегда возвращает ответ: при сбое всех моделей Gemini — локальный подбор по каталогу."""
     ip = client_ip(request)
     key = access_key(request)
-    if not await uid_by_token(key, ip):
+    uid = await uid_by_token(key, ip)
+    if not uid:
         return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
     if not TOK_AI.hit(key):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
@@ -781,6 +829,7 @@ async def ai_ask(request: Request, b: AiReq):
         return JSONResponse({"error": "busy"}, status_code=503, headers={**NOSTORE, "Retry-After": "5"})
     async with AI_SLOTS:
         res = await assistant.answer(b.q, b.history, tools_json())
+    await site_alert("ai", "Вопрос ИИ", uid, f"{b.q[:300]}\nмодель: {res['model'] or 'локальный ответ'}", ip)
     if not res["answer"]:
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
     return JSONResponse({"answer": res["answer"], "fallback": res["fallback"],
@@ -813,6 +862,7 @@ async def track(request: Request, b: Track):
         return JSONResponse({"ok": False}, status_code=429, headers={"Retry-After": "30"})
     owner = _sid_owner.get(b.sid)
     if owner is not None and owner != uid:                # чужую сессию подменить нельзя
+        alerts.notify("scan", "Подмена чужой сессии (sid)", f"IP: {ip}\nID: {uid}\nsid владельца: {owner}")
         return JSONResponse({"ok": False}, status_code=403)
     if owner is None:
         if not NEW_SID.hit(key):                          # и плодить сессии тоже
@@ -829,6 +879,8 @@ async def track(request: Request, b: Track):
             "insert into events(tg_id, sid, ev, tool, ip) values($1, $2, $3, $4, $5)",
             uid, b.sid, b.ev, b.tool, ip,
         )
+        await site_alert("tool", {"select": "Открыл инструмент", "bot": "Перешёл в бота",
+                                  "eternal": "Нажал вечную ссылку"}[b.ev], uid, b.tool or "", ip)
     return {"ok": True}
 
 
@@ -855,6 +907,7 @@ async def rate(request: Request, b: Rate):
         uid, b.tool, b.stars,
     )
     row = await pool.fetchrow("select avg(stars)::float av, count(*) n from ratings where tool = $1", b.tool)
+    await site_alert("tool", "Оценка инструмента", uid, f"{b.tool}: {b.stars}★")
     return JSONResponse({"ok": True, "avg": round(row["av"] or 0, 1), "count": row["n"], "mine": b.stars}, headers=NOSTORE)
 
 
@@ -976,11 +1029,15 @@ def check_origin(req: Request):
     """POST в админку принимаем только со страницы самого сайта (защита от CSRF поверх SameSite=Strict)."""
     origin = req.headers.get("origin")
     if origin and urlsplit(origin).netloc != req.headers.get("host", ""):
+        alerts.notify("scan", "Админка: POST с чужого Origin (CSRF?)",
+                      f"IP: {client_ip(req)}\nOrigin: {origin[:100]}\n{req.url.path}")
         raise HTTPException(403)
 
 
 def guard(req: Request, full: bool = True):
     if not ip_ok(req):
+        alerts.notify("scan", "Попытка зайти в админку с чужого IP",
+                      f"IP: {client_ip(req)}\n{req.method} {req.url.path}\nUA: {req.headers.get('user-agent', '')[:150]}")
         raise HTTPException(404)
     if req.method == "POST":
         check_origin(req)
@@ -1029,6 +1086,8 @@ except OSError:
 
 def admin_page(req: Request):
     if not ip_ok(req):
+        alerts.notify("scan", "Попытка открыть /admin с чужого IP",
+                      f"IP: {client_ip(req)}\nUA: {req.headers.get('user-agent', '')[:150]}")
         return RedirectResponse(main_url(req), status_code=302)
     return FileResponse(ADMIN_HTML, headers={"Cache-Control": "no-store", "Content-Security-Policy": ADMIN_CSP})
 
@@ -1065,13 +1124,16 @@ async def admin_login(request: Request, body: Login):
     if not admin_enabled():
         return JSONResponse({"error": "Админка не настроена: задайте ADMIN_LOGIN, ADMIN_PASSWORD и ADMIN_TOTP_SECRET."}, status_code=503)
     if is_locked(ip):
+        alerts.notify("admin", "Вход заблокирован (много попыток)", f"IP: {ip}")
         return JSONResponse({"error": "Слишком много попыток. Подождите 15 минут."}, status_code=429)
     ok = hmac.compare_digest(body.login.encode(), ADMIN_LOGIN.encode()) & \
         hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode())
     if not ok:
         add_fail(ip)
+        alerts.notify("admin", "Неверный логин или пароль", f"IP: {ip}\nлогин: {body.login[:40]}")
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный логин или пароль."}, status_code=401)
+    alerts.notify("admin", "Пароль принят, ждём 2FA", f"IP: {ip}")
     resp = JSONResponse({"ok": True, "step": "2fa"})
     put_cookie(resp, request, "hpre", new_token("pre", ip, 300), 300)
     return resp
@@ -1084,12 +1146,15 @@ async def admin_2fa(request: Request, body: Code):
     if session_state(request) != "pre":
         return JSONResponse({"error": "Сначала введите логин и пароль."}, status_code=401)
     if is_locked(ip):
+        alerts.notify("admin", "2FA заблокирована (много попыток)", f"IP: {ip}")
         return JSONResponse({"error": "Слишком много попыток. Подождите 15 минут."}, status_code=429)
     if not verify_totp(body.code):
         add_fail(ip)
+        alerts.notify("admin", "Неверный код 2FA", f"IP: {ip}")
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный код."}, status_code=401)
     drop_session(request, "hpre")          # код подтверждения одноразовый
+    alerts.notify("admin", "Вход в админку выполнен", f"IP: {ip}")
     resp = JSONResponse({"ok": True})
     put_cookie(resp, request, "hadm", new_token("full", ip, 4 * 3600), 4 * 3600)
     resp.delete_cookie("hpre", path="/")
@@ -1101,6 +1166,7 @@ async def admin_logout(request: Request):
     guard(request, full=False)
     drop_session(request, "hadm")
     drop_session(request, "hpre")
+    alerts.notify("admin", "Выход из админки", f"IP: {client_ip(request)}")
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("hadm", path="/")
     resp.delete_cookie("hpre", path="/")
@@ -1394,7 +1460,7 @@ async def admin_user(request: Request, tg_id: int = ApiPath(ge=0, le=10**15)):
 
 
 # ---- каталог: правка через админку
-async def _cat_call(coro):
+async def _cat_call(coro, what: str = ""):
     try:
         res = await coro
     except ValueError as e:
@@ -1402,6 +1468,8 @@ async def _cat_call(coro):
     except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
         log.warning("каталог: ошибка базы: %s", e)
         return JSONResponse({"error": "База недоступна, попробуйте ещё раз"}, status_code=503, headers=NOSTORE)
+    if what:
+        alerts.notify("catalog", "Изменение каталога", what)
     return JSONResponse({"ok": True, "id": res if isinstance(res, int) else None}, headers=NOSTORE)
 
 
@@ -1428,6 +1496,7 @@ async def admin_catalog_export(request: Request):
     body = cat.body()
     if body is None:
         raise HTTPException(503)
+    alerts.notify("catalog", "Скачан JSON каталога", f"IP: {client_ip(request)}")
     return Response(body, media_type="application/json",
                     headers={**NOSTORE, "Content-Disposition": 'attachment; filename="tools.json"'})
 
@@ -1435,26 +1504,29 @@ async def admin_catalog_export(request: Request):
 @app.post("/admin/api/catalog/create")
 async def admin_catalog_create(request: Request):
     guard(request)
-    return await _cat_call(cat.create(pool, await _json_body(request)))
+    d = await _json_body(request)
+    return await _cat_call(cat.create(pool, d), f"создан {d.get('kind')}: {str(d.get('name'))[:60]}")
 
 
 @app.post("/admin/api/catalog/update")
 async def admin_catalog_update(request: Request):
     guard(request)
-    return await _cat_call(cat.update(pool, await _json_body(request)))
+    d = await _json_body(request)
+    return await _cat_call(cat.update(pool, d), f"правка id={d.get('id')}: {str(d.get('name') or '')[:60]}")
 
 
 @app.post("/admin/api/catalog/delete")
 async def admin_catalog_delete(request: Request):
     guard(request)
-    return await _cat_call(cat.delete(pool, (await _json_body(request)).get("id")))
+    d = await _json_body(request)
+    return await _cat_call(cat.delete(pool, d.get("id")), f"удалён id={d.get('id')}")
 
 
 @app.post("/admin/api/catalog/move")
 async def admin_catalog_move(request: Request):
     guard(request)
     d = await _json_body(request)
-    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")))
+    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")), f"перемещён id={d.get('id')} ({d.get('dir')})")
 
 
 # ====================== страницы и поддомены ======================
