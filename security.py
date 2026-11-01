@@ -16,6 +16,7 @@ import os
 import re
 import time
 from collections import OrderedDict, deque
+from urllib.parse import unquote
 
 log = logging.getLogger("harledy.sec")
 
@@ -49,6 +50,7 @@ DEBUG_IP = os.environ.get("DEBUG_IP") == "1"
 HTTPS_SITE = (os.environ.get("SITE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").startswith("https")
 EXEMPT_NETS: list = []  # сети, которые не банятся (админ); заполняет main.py
 ON_BAN = None            # функция (ключ, вид, номер нарушения, секунд) — вызывается при бане; ставит main.py (алерты)
+ON_EVENT = None          # функция (вид, заголовок, текст) — алерты о сканировании и атаках; ставит main.py
 
 
 # ---------------------------------------------------------------- определение IP
@@ -298,6 +300,35 @@ def _log_limited(key: str, msg: str, *args):
         log.warning(msg, *args)
 
 
+# ---------------------------------------------------------------- сканирование и атаки
+_ATTACK = re.compile(
+    r"(\.\./|/\.(env|git|svn|ssh|aws|htaccess|htpasswd)|wp-(admin|login|content|includes)|xmlrpc|phpmyadmin"
+    r"|/etc/passwd|\.(php|asp|aspx|jsp|cgi)\b|/cgi-bin|/actuator|/vendor/|/boaform|/HNAP1|/solr"
+    r"|union[\s+]+select|<script|\bor[\s+]+1=1)", re.I)
+
+
+def _looks_like_attack(scope) -> bool:
+    p = scope.get("path", "")
+    q = scope.get("query_string", b"")[:500].decode("latin-1")
+    s = unquote(unquote(p + "?" + q))
+    return bool(_ATTACK.search(s))
+
+
+def _alert(kind: str, title: str, scope, key: str, extra: str = ""):
+    """Алерт о подозрительном запросе: IP, метод, путь, Host, User-Agent. Без кулдауна."""
+    if not ON_EVENT:
+        return
+    try:
+        q = scope.get("query_string", b"")[:150].decode("latin-1")
+        body = (f"IP: {scope.get('_cip') or key}\n{scope.get('method')} {scope.get('path', '/')[:200]}"
+                + (f"?{q}" if q else "")
+                + f"\nHost: {header(scope, b'host')[:100]}\nUA: {header(scope, b'user-agent')[:150]}"
+                + (f"\n{extra}" if extra else ""))
+        ON_EVENT(kind, title, body)
+    except Exception:
+        pass
+
+
 class Shield:
     """Самый внешний слой: фильтрует мусор до того, как запрос дойдёт до приложения и базы."""
 
@@ -317,23 +348,32 @@ class Shield:
             return await _deny(send, scope, 429, "too many requests", retry=600)
         if scope.get("method") not in ("GET", "HEAD", "POST"):
             BANS.strike(key, "bad", 30)
+            _alert("scan", "Странный HTTP-метод", scope, key)
             return await _deny(send, scope, 405, "method not allowed")
+        if _looks_like_attack(scope):
+            _alert("scan", "Сканирование / попытка взлома", scope, key)
+            BANS.strike(key, "scan", 5, 600)
+            return await _deny(send, scope, 404, "not found")
         if kind != "ping":
             if ALLOWED_HOSTS and not host_ok(header(scope, b"host")):
                 BANS.strike(key, "bad", 30)
+                _alert("scan", "Запрос с чужим Host", scope, key)
                 return await _deny(send, scope, 400, "bad host")
             if ORIGIN_SECRET and not hmac.compare_digest(
                     header(scope, ORIGIN_HEADER.encode()).encode(), ORIGIN_SECRET.encode()):
                 BANS.strike(key, "bad", 30)
                 _log_limited("origin", "request without valid origin secret (direct hit?) from %s", key)
+                _alert("scan", "Прямой запрос в обход Cloudflare", scope, key)
                 return await _deny(send, scope, 403, "forbidden")
         body_cap = MAX_BODY_AI if kind == "ai" else MAX_BODY
         cl = header(scope, b"content-length")
         # isdigit() пропускает «²» и подобные символы, а int() на них падает: проверяем только ASCII-цифры
         if cl and (not (cl.isascii() and cl.isdigit()) or len(cl) > 9 or int(cl) > body_cap):
             BANS.strike(key, "bad", 30)
+            _alert("scan", "Слишком большое тело запроса", scope, key, f"Content-Length: {cl[:20]}")
             return await _deny(send, scope, 413, "payload too large")
         if not LIMITS[kind].hit(key):
+            _alert("scan", f"Превышен лимит запросов ({kind})", scope, key)
             if BANS.strike(key):
                 return await _deny(send, scope, 429, "too many requests", retry=600)
             _log_limited("rl:" + kind, "rate limit (%s) exceeded by %s", kind, key)
