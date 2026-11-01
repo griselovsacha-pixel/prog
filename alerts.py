@@ -3,17 +3,17 @@
 Как работает:
   * alerts.notify(kind, title, body, key=None, cooldown=0) — можно вызывать откуда угодно (и из обычного кода,
     и из потоков): событие кладётся в очередь, отдельная задача отправляет его в Telegram.
-  * Всплески склеиваются в одно сообщение; больше 20 сообщений за 10 минут не уходит (остальное считается и
-    сообщается одной строкой), так что бот не заспамит ни вас, ни Telegram.
-  * Одинаковые события с key и cooldown не повторяются чаще, чем раз в cooldown секунд.
+  * Всплески склеиваются в одно сообщение; больше 300 сообщений за 10 минут не уходит (остальное считается и
+    сообщается одной строкой), так что бот не заспамит Telegram.
+  * Одинаковые события с key и cooldown не повторяются чаще, чем раз в cooldown секунд (по умолчанию cooldown не ставим).
   * Из текстов вырезаются токены, пароли и любые значения секретных переменных окружения.
   * Ошибки уровня ERROR из любых логов (в т.ч. необработанные исключения сайта и бота) уходят сюда сами.
 
 Настройка (все необязательные):
   ALERT_CHAT_ID      кому слать (по умолчанию TOOL_REVIEW_CHAT, т.е. владельцу)
   ALERTS=off         выключить все алерты
-  ALERT_MUTE         виды через запятую, которые не слать: user,terms,join,probe,ban,catalog,ai,digest …
-  ALERT_DIGEST_HOUR  час суточной сводки по времени ADMIN_TZ (по умолчанию 9; -1 — выключить)
+  ALERT_MUTE         виды через запятую, которые не слать: user,terms,join,probe,ban,catalog,ai,site,tool,pay,scan …
+  ALERT_DIGEST_HOUR  час суточной сводки по времени ADMIN_TZ (пока не реализовано)
 """
 import asyncio
 import html
@@ -33,6 +33,7 @@ log = logging.getLogger("harledy.alerts")
 ICON = {
     "start": "🟢", "stop": "🔴", "error": "🚨", "db": "🗄", "admin": "🔐", "probe": "🕵️", "ban": "⛔",
     "user": "👤", "terms": "📜", "join": "📨", "catalog": "🛠", "ai": "🤖", "digest": "📊", "info": "ℹ️",
+    "scan": "🚨", "site": "🌐", "tool": "🧰", "pay": "💸",
 }
 ENABLED = os.environ.get("ALERTS", "on").strip().lower() not in ("off", "0", "no", "false")
 MUTE = {x.strip().lower() for x in re.split(r"[,\s]+", os.environ.get("ALERT_MUTE", "")) if x.strip()}
@@ -46,7 +47,7 @@ _q: asyncio.Queue | None = None
 _task: asyncio.Task | None = None
 _pending: list = []                  # события, случившиеся до старта (например, при запуске)
 _last = sec.Bounded(2000)            # "вид:ключ" -> когда последний раз слали
-_limiter = sec.Limiter(20, 600)      # не больше 20 сообщений за 10 минут
+_limiter = sec.Limiter(300, 600)     # не больше 300 сообщений за 10 минут
 _dropped = 0
 _stats: Counter = Counter()          # счётчики событий для суточной сводки
 
@@ -64,6 +65,13 @@ def scrub(text) -> str:
     for v in vals:
         s = s.replace(v, "***")
     return s
+
+
+def who(u) -> str:
+    """Подпись пользователя Telegram для алерта: имя, @username, ID."""
+    name = getattr(u, "full_name", "") or "?"
+    un = getattr(u, "username", None)
+    return f"{name}" + (f" (@{un})" if un else "") + f"\nID: {getattr(u, 'id', '?')}"
 
 
 def _now() -> str:
@@ -191,7 +199,7 @@ def start(bot, chat_id: int, tz: str = "UTC") -> None:
     global _bot, _chat, _tz, _loop, _q, _task
     _bot, _chat, _tz = bot, int(chat_id), tz
     _loop = asyncio.get_running_loop()
-    _q = asyncio.Queue(maxsize=200)
+    _q = asyncio.Queue(maxsize=500)
     _task = asyncio.create_task(_worker())
     pending, _pending[:] = list(_pending), []
     for item in pending:
