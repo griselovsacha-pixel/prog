@@ -28,7 +28,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    CallbackQuery, ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    CallbackQuery, ChatJoinRequest, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import Path as ApiPath
@@ -38,7 +38,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import ai_assistant as ai
-import alerts
 import bot_features as bf
 import catalog as cat
 import monitor as mon
@@ -46,7 +45,6 @@ import security as sec
 
 logging.basicConfig(level=logging.INFO)
 sec.install_log_masking()   # токены доступа (?k=…) и токен бота не попадают в логи
-alerts.install_log_handler()   # ошибки уровня ERROR из любых логов приходят владельцу в личку бота
 log = logging.getLogger("harledy")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -56,18 +54,21 @@ DB_SSL = os.environ.get("DB_SSL", "require").strip().lower()
 CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/+X8s2DkoSD7M3MTc6")
 DEV_LINK = os.environ.get("DEV_LINK", "https://t.me/SexHarledy")      # кнопка «Контакт разработчика» на /ai
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or -1004319976611)  # переменная окружения, если задана, главнее
+# вторая обязательная подписка: группа «forum след смерти». GROUP_ID (-100…) желательно задать: тогда бот сам проверяет
+# участие; без него опирается на заявки по ссылке и события входа/выхода (бот должен быть админом группы)
+GROUP_LINK = os.environ.get("GROUP_LINK", "https://t.me/+MTLYepoVcw8wNDZi")
+GROUP_ID = int(os.environ.get("GROUP_ID") or -1003774241091)  # переменная окружения, если задана, главнее
+GROUP_TITLE = "forum след смерти"
+REQUIRED = [   # всё, на что надо быть подписанным: key пишется в join_requests.src
+    {"key": "channel", "title": "Harledy project", "id": CHANNEL_ID, "link": CHANNEL_LINK},
+    {"key": "group", "title": GROUP_TITLE, "id": GROUP_ID, "link": GROUP_LINK},
+]
 BASE = Path(__file__).parent
 # Telegram ID владельцев: только им бот отвечает ID канала на пересланный пост
 ADMIN_TG_IDS = {int(x) for x in re.findall(r"\d+", os.environ.get("ADMIN_TG_IDS", ""))}
 
 # заявки «Добавить свой инструмент» приходят этому Telegram ID; Crypto Pay — токен только из переменных окружения
 TOOL_REVIEW_CHAT = int(os.environ.get("TOOL_REVIEW_CHAT") or 8521863420)
-# куда слать алерты (ошибки, входы в админку, баны, новые пользователи …); по умолчанию — владельцу
-ALERT_CHAT = int(os.environ.get("ALERT_CHAT_ID") or TOOL_REVIEW_CHAT)
-try:
-    DIGEST_HOUR = int(os.environ.get("ALERT_DIGEST_HOUR", "9"))
-except ValueError:
-    DIGEST_HOUR = 9
 CRYPTO_PAY_TOKEN = os.environ.get("CRYPTO_PAY_TOKEN", "").strip()
 CRYPTO_PAY_HOST = os.environ.get("CRYPTO_PAY_HOST", "https://pay.crypt.bot").strip()   # для тестов: https://testnet-pay.crypt.bot
 
@@ -132,6 +133,8 @@ create table if not exists join_requests(
     created_at timestamptz not null default now(),
     primary key (tg_id, chat_id)
 );
+alter table join_requests add column if not exists was_member boolean not null default false;
+alter table join_requests add column if not exists src text not null default 'channel';
 create table if not exists sessions(
     id text primary key,
     tg_id bigint not null,
@@ -206,10 +209,6 @@ async def send(bot: Bot, chat_id: int, text: str, kb=None, kb_plain=None):
         return await bot.send_message(chat_id, strip_emoji(text), reply_markup=kb_plain or kb)
 
 
-def who(u) -> str:
-    return f"{u.full_name}" + (f" (@{u.username})" if u.username else "") + f" · ID {u.id}"
-
-
 async def ensure_user(u) -> str:
     """Создаёт юзера при первом контакте. Токен ссылки генерируется один раз и больше не меняется."""
     row = await pool.fetchrow(
@@ -217,31 +216,69 @@ async def ensure_user(u) -> str:
            values($1, $2, $3, $4)
            on conflict (tg_id) do update
              set full_name = excluded.full_name, username = excluded.username
-           returning token, (xmax = 0) as is_new""",
+           returning token""",
         u.id, u.full_name, u.username, secrets.token_urlsafe(18),
     )
-    if row["is_new"]:
-        alerts.notify("user", "Новый пользователь", who(u))
     return row["token"]
 
 
-def is_our_channel(chat_id: int, invite_link: str | None) -> bool:
-    if CHANNEL_ID:
-        return chat_id == CHANNEL_ID
-    return bool(invite_link) and invite_link.rstrip("/") == CHANNEL_LINK.rstrip("/")
+def required_key(chat_id: int, invite_link: str | None) -> str | None:
+    """К какой обязательной подписке относится чат/ссылка: 'channel', 'group' или None (чужой чат)."""
+    for r in REQUIRED:
+        if r["id"]:
+            if chat_id == r["id"]:
+                return r["key"]
+        elif invite_link and invite_link.rstrip("/") == r["link"].rstrip("/"):
+            return r["key"]
+    return None
+
+
+_member_ok = sec.Bounded(20000)      # (chat_id, uid) -> когда проверили, что человек в чате; не дёргаем Telegram на каждое нажатие
+MEMBER_TTL = 60
+
+
+async def _member_state(bot: Bot, chat_id: int, uid: int) -> str | None:
+    """'member' / 'left' / None (Telegram не ответил: не наказываем пользователя за сбой)."""
+    if time.monotonic() - _member_ok.get((chat_id, uid), -1e9) < MEMBER_TTL:
+        return "member"
+    try:
+        m = await bot.get_chat_member(chat_id, uid)
+    except TelegramAPIError as e:
+        log.warning("get_chat_member(%s) failed: %s", chat_id, e)
+        return None
+    if m.status in ("member", "administrator", "creator") or (m.status == "restricted" and getattr(m, "is_member", False)):
+        _member_ok.put((chat_id, uid), time.monotonic())
+        return "member"
+    _member_ok.pop((chat_id, uid), None)
+    return "left"
+
+
+async def _has_one(bot: Bot, uid: int, req: dict) -> bool:
+    """Подписка на один канал/группу. Заявка в ожидании считается доступом, но только пока человек не состоял в чате:
+    состоял и вышел → запись удаляется, нужно подать заявку заново."""
+    row = await pool.fetchrow(
+        "select chat_id, was_member from join_requests where tg_id = $1 and src = $2 order by created_at desc limit 1",
+        uid, req["key"])
+    state = await _member_state(bot, req["id"], uid) if req["id"] else None
+    if state == "member":
+        if row is None:                       # вошёл без заявки (ссылка без одобрения): запоминаем, чтобы заметить выход
+            await pool.execute(
+                "insert into join_requests(tg_id, chat_id, src, was_member) values($1, $2, $3, true) on conflict do nothing",
+                uid, req["id"], req["key"])
+        elif not row["was_member"]:
+            await pool.execute("update join_requests set was_member = true where tg_id = $1 and chat_id = $2", uid, row["chat_id"])
+        return True
+    if row is None:
+        return False
+    if state == "left" and row["was_member"]:
+        await pool.execute("delete from join_requests where tg_id = $1 and chat_id = $2", uid, row["chat_id"])
+        return False
+    return True                               # заявка ждёт одобрения, либо Telegram не ответил
 
 
 async def has_access(bot: Bot, uid: int) -> bool:
-    """Доступ есть, если подана заявка в канал (или юзер уже участник канала, например админ)."""
-    if await pool.fetchval("select 1 from join_requests where tg_id = $1 limit 1", uid):
-        return True
-    if CHANNEL_ID:
-        try:
-            member = await bot.get_chat_member(CHANNEL_ID, uid)
-            return member.status in ("member", "administrator", "creator")
-        except TelegramAPIError as e:
-            log.warning("get_chat_member failed: %s", e)
-    return False
+    """Доступ есть, если по каждой обязательной подписке (канал и группа) человек в чате или его заявка ждёт одобрения."""
+    return all(await asyncio.gather(*(_has_one(bot, uid, r) for r in REQUIRED)))
 
 
 def gate_kb(icons: bool) -> InlineKeyboardMarkup:
@@ -251,6 +288,7 @@ def gate_kb(icons: bool) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [btn("Harledy project", ICON_CHANNEL, url=CHANNEL_LINK)],
+        [btn(GROUP_TITLE, ICON_CHANNEL, url=GROUP_LINK)],
         [btn("Я подписался", ICON_DONE, callback_data="check_sub")],
     ])
 
@@ -258,7 +296,7 @@ def gate_kb(icons: bool) -> InlineKeyboardMarkup:
 async def send_gate(bot: Bot, chat_id: int):
     await send(                                        # одно сообщение вместо двух — вдвое меньше круговых задержек до Telegram
         bot, chat_id,
-        f"{emoji(EMOJI_GATE, '⚠️')} Для использования бота необходима подписка на канал!",
+        f"{emoji(EMOJI_GATE, '⚠️')} Для использования бота необходима подписка на канал и группу!",
         kb=gate_kb(True), kb_plain=gate_kb(False),
     )
 
@@ -374,10 +412,8 @@ async def on_check_status(m: Message):
 @router.callback_query(F.data == "accept_terms")
 async def on_accept_terms(cb: CallbackQuery):
     await ensure_user(cb.from_user)
-    res = await pool.execute(
+    await pool.execute(
         "update users set terms_accepted_at = now() where tg_id = $1 and terms_accepted_at is null", cb.from_user.id)
-    if res.endswith(" 1"):
-        alerts.notify("terms", "Принял пользовательское соглашение", who(cb.from_user))
     _terms_ok.put(cb.from_user.id, True)
     await cb.answer("Спасибо! Соглашение принято.")
     try:
@@ -402,7 +438,7 @@ async def on_check(cb: CallbackQuery):
         await send_menu(cb.bot, cb.from_user)
     else:
         log.info("check_sub: no join request / membership for user=%s", cb.from_user.id)
-        await cb.answer("Подпишитесь, пожалуйста!", show_alert=True)
+        await cb.answer("Подпишитесь на канал и группу, затем нажмите кнопку ещё раз", show_alert=True)
 
 
 @router.message(F.forward_origin.chat.type == "channel")
@@ -439,14 +475,32 @@ class BotThrottle(BaseMiddleware):
 async def on_join_request(req: ChatJoinRequest):
     link = req.invite_link.invite_link if req.invite_link else None
     log.info("join request: user=%s chat_id=%s title=%r link=%s", req.from_user.id, req.chat.id, req.chat.title, link)
-    if not is_our_channel(req.chat.id, link):
+    key = required_key(req.chat.id, link)
+    if not key:
         return
-    res = await pool.execute(
-        "insert into join_requests(tg_id, chat_id) values($1, $2) on conflict do nothing",
-        req.from_user.id, req.chat.id,
+    await pool.execute(                       # новая заявка = человек сейчас не в чате: сбрасываем «состоял»
+        """insert into join_requests(tg_id, chat_id, src) values($1, $2, $3)
+           on conflict (tg_id, chat_id) do update set was_member = false, created_at = now(), src = excluded.src""",
+        req.from_user.id, req.chat.id, key,
     )
-    if res.endswith(" 1"):
-        alerts.notify("join", "Заявка в канал", who(req.from_user))
+
+
+@router.chat_member()
+async def on_chat_member(ev: ChatMemberUpdated):
+    """Вход и выход из обязательных чатов (бот должен быть админом). Вышел или исключён → подписка снова обязательна."""
+    uid, chat_id, status = ev.new_chat_member.user.id, ev.chat.id, ev.new_chat_member.status
+    link = ev.invite_link.invite_link if ev.invite_link else None
+    known = await pool.fetchval("select 1 from join_requests where chat_id = $1 limit 1", chat_id)
+    key = required_key(chat_id, link) or ("channel" if chat_id == CHANNEL_ID else "group" if chat_id == GROUP_ID and GROUP_ID else None)
+    if not key and not known:
+        return
+    _member_ok.pop((chat_id, uid), None)
+    if status in ("left", "kicked"):
+        await pool.execute("delete from join_requests where tg_id = $1 and chat_id = $2", uid, chat_id)
+    elif status in ("member", "administrator", "creator") and key:
+        await pool.execute(
+            """insert into join_requests(tg_id, chat_id, src, was_member) values($1, $2, $3, true)
+               on conflict (tg_id, chat_id) do update set was_member = true""", uid, chat_id, key)
 
 
 async def diagnose(bot: Bot):
@@ -462,6 +516,16 @@ async def diagnose(bot: Bot):
             log.warning("БОТ НЕ АДМИН КАНАЛА или у него нет права «Приглашать пользователей»: заявки приходить не будут")
     except TelegramAPIError as e:
         log.warning("Не удалось проверить канал %s (неверный CHANNEL_ID или бот не в канале): %s", CHANNEL_ID, e)
+    if not GROUP_ID:
+        log.warning("GROUP_ID не задан: участие в группе «%s» проверяется только по заявкам и событиям входа/выхода", GROUP_TITLE)
+        return
+    try:
+        m = await bot.get_chat_member(GROUP_ID, me.id)
+        log.info("group %s: bot status=%s", GROUP_ID, m.status)
+        if m.status not in ("administrator", "creator"):
+            log.warning("Бот не админ группы %s: события входа/выхода приходить не будут", GROUP_ID)
+    except TelegramAPIError as e:
+        log.warning("Не удалось проверить группу %s (неверный GROUP_ID или бот не в группе): %s", GROUP_ID, e)
 
 
 # ====================== фон ======================
@@ -478,7 +542,6 @@ async def self_ping():
                     await r.read()
             except Exception as e:
                 log.warning("self-ping failed: %s", e)
-                alerts.notify("db", "Сайт не отвечает на собственный /ping", type(e).__name__, key="selfping", cooldown=3600)
 
 
 async def status_loop(bot: Bot):
@@ -491,58 +554,7 @@ async def status_loop(bot: Bot):
             raise
         except Exception as e:
             log.warning("проверка каталога не удалась: %s", e)
-            alerts.notify("error", "Автопроверка каталога упала", type(e).__name__, key="statusloop", cooldown=3600)
         await asyncio.sleep(900)
-
-
-async def health_loop():
-    """Раз в минуту проверяем базу. Алерт только после двух подряд одинаковых результатов — одиночный сбой не шумит."""
-    state, streak = True, 0
-    while True:
-        await asyncio.sleep(60)
-        try:
-            await asyncio.wait_for(pool.fetchval("select 1"), 8)
-            good, err = True, ""
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            good, err = False, type(e).__name__
-        streak = streak + 1 if good != state else 0
-        if streak >= 2:
-            state, streak = good, 0
-            alerts.notify("db", "База данных снова доступна" if good else "База данных недоступна", err)
-
-
-async def digest_loop():
-    """Раз в сутки (ALERT_DIGEST_HOUR по ADMIN_TZ) — короткая сводка: люди, заходы, ошибки, баны."""
-    if DIGEST_HOUR < 0:
-        return
-    while True:
-        tz = ZoneInfo(ADMIN_TZ)
-        now = datetime.now(tz)
-        nxt = now.replace(hour=min(DIGEST_HOUR, 23), minute=0, second=0, microsecond=0)
-        if nxt <= now:
-            nxt += timedelta(days=1)
-        await asyncio.sleep((nxt - now).total_seconds())
-        try:
-            r = await pool.fetchrow(
-                """select (select count(*) from users) total,
-                          (select count(*) from users where created_at > now() - interval '24 hours') new_users,
-                          (select count(*) from join_requests where created_at > now() - interval '24 hours') reqs,
-                          (select count(distinct tg_id) from visits where created_at > now() - interval '24 hours') visitors,
-                          (select count(*) from events where ev = 'select' and created_at > now() - interval '24 hours') opens,
-                          (select count(*) from events where ev = 'bot' and created_at > now() - interval '24 hours') bots,
-                          (select count(*) from ratings where updated_at > now() - interval '24 hours') rates""")
-            st = alerts.take_stats()
-            alerts.notify("digest", "Сводка за сутки",
-                          f"Пользователей всего: {r['total']} (новых: {r['new_users']})\n"
-                          f"Заявок в канал: {r['reqs']}\nУникальных заходов на сайт: {r['visitors']}\n"
-                          f"Открыто инструментов: {r['opens']} · переходов в ботов: {r['bots']} · оценок: {r['rates']}\n"
-                          f"Ошибок: {st.get('error', 0)} · банов: {st.get('ban', 0)} · "
-                          f"чужих попыток в админку: {st.get('probe', 0)}")
-        except Exception as e:
-            log.warning("суточная сводка не собралась: %s", e)
-        await asyncio.sleep(60)
 
 
 async def catalog_loop():
@@ -575,28 +587,9 @@ async def lifespan(app: FastAPI):
     if len(_secret_env) < 32:
         log.warning("ADMIN_SESSION_SECRET не задан (или короче 32 символов): сессии админа сбрасываются при перезапуске")
     if not sec.ORIGIN_SECRET:
-        log.info("ORIGIN_SECRET не задан: нужен только когда сайт стоит за вашим Cloudflare (см. SECURITY.md)")
-    if not sec.ALLOWED_HOSTS:
-        log.warning("ALLOWED_HOSTS не задан: проверка заголовка Host выключена (см. SECURITY.md)")
+        log.warning("ORIGIN_SECRET не задан: сайт доступен в обход вашего Cloudflare (см. SECURITY.md)")
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    alerts.start(bot, ALERT_CHAT, ADMIN_TZ)
-    problems = []
-    if not ADMIN_NETS:
-        problems.append("ADMIN_IP не задан: админка закрыта для всех")
-    elif not admin_enabled():
-        problems.append("админка не настроена (ADMIN_LOGIN / ADMIN_PASSWORD / ADMIN_TOTP_SECRET)")
-    if len(_secret_env) < 32:
-        problems.append("ADMIN_SESSION_SECRET не задан: сессия админа сбрасывается при перезапуске")
-    if not sec.ALLOWED_HOSTS:
-        problems.append("ALLOWED_HOSTS не задан: проверка Host выключена")
-    if not SITE_URL:
-        problems.append("SITE_URL не задан")
-    alerts.notify("start", "Сервер запущен",
-                  "Алерты работают.\n" + ("\n".join("⚠️ " + p for p in problems) if problems else "Настройки безопасности в порядке."))
-    sec.ON_BAN = lambda key, kind, off, secs: alerts.notify(
-        "ban", "Заблокирован адрес" + (": перебор токенов доступа" if kind == "token" else ""),
-        f"{key}\nпричина: {kind} · нарушение №{off} · на {secs // 60} мин", key=key, cooldown=600)
     dp = Dispatcher()
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
@@ -613,12 +606,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(self_ping()),
         asyncio.create_task(status_loop(bot)),
         asyncio.create_task(catalog_loop()),
-        asyncio.create_task(health_loop()),
-        asyncio.create_task(digest_loop()),
     ]
     yield
-    alerts.notify("stop", "Сервер останавливается", "Перезапуск или деплой на Render.")
-    await alerts.stop()                  # дослать очередь до закрытия сессии бота
     await assistant.aclose()
     for t in tasks:
         t.cancel()
@@ -669,7 +658,6 @@ _last_visit = sec.Bounded(20000)     # tg_id -> когда писали визи
 TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей действий в базу за 10 минут (сверх лимита молча отбрасываем)
 TOK_RATE = sec.Limiter(20, 600)      # на один токен: оценок инструментов за 10 минут
 TOK_AI = sec.Limiter(8, 60)          # на один токен: вопросов ИИ-ассистенту в минуту
-TOK_AI_DAY = sec.Limiter(150, 86400) # на один токен: вопросов ИИ в сутки (защита квоты Gemini)
 TOK_RATINGS = sec.Limiter(20, 60)    # на один токен: чтение сводного рейтинга
 TOK_STATUS = sec.Limiter(20, 60)     # на один токен: чтение статусов инструментов
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
@@ -764,7 +752,6 @@ async def tools(request: Request, k: str = ""):
             )
         except Exception as e:                           # сбой статистики не должен ронять сайт
             log.warning("visit insert failed: %s", e)
-            alerts.notify("db", "Не удалось записать визит в базу", type(e).__name__, key="visit", cooldown=600)
     body = tools_json()
     if body is None:
         return JSONResponse({"error": "unavailable"}, status_code=503, headers=NOSTORE)
@@ -790,50 +777,14 @@ async def ai_ask(request: Request, b: AiReq):
         return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
     if not TOK_AI.hit(key):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
-    if not TOK_AI_DAY.hit(key):
-        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "3600"})
     if AI_SLOTS.locked():
         return JSONResponse({"error": "busy"}, status_code=503, headers={**NOSTORE, "Retry-After": "5"})
-    try:                                   # живые данные для ИИ: сбой базы не должен лишать пользователя ответа
-        status, ratings = await status_map(), await ratings_summary()
-    except Exception as e:
-        log.warning("ai: статусы/рейтинги недоступны: %s", e)
-        status = ratings = None
     async with AI_SLOTS:
-        res = await assistant.answer(b.q, b.history, tools_json(), status, ratings)
-    if res.get("fallback"):
-        alerts.notify("ai", "ИИ недоступен: ответ из локального каталога",
-                      "Gemini не ответил (все модели и ключи). Проверьте ключи и квоту.", key="aifb", cooldown=900)
+        res = await assistant.answer(b.q, b.history, tools_json())
     if not res["answer"]:
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
-    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"], "tools": res.get("tools", []),
+    return JSONResponse({"answer": res["answer"], "fallback": res["fallback"],
                          "links": {"dev": DEV_LINK, "channel": CHANNEL_LINK}}, headers=NOSTORE)
-
-
-_tool_keys = {"body": None, "keys": None}
-
-
-def known_tool(name: str) -> bool:
-    """Название инструмента (путь «Категория › Название») должно существовать в каталоге: иначе в базу
-    можно набить мусорные строки. Если каталог недоступен, проверку пропускаем."""
-    body = tools_json()
-    if body is None:
-        return True
-    if _tool_keys["body"] is not body:
-        keys: set = set()
-
-        def walk(node, prefix):
-            for c in node.get("children") or []:
-                if isinstance(c, dict) and isinstance(c.get("name"), str):
-                    k = f"{prefix} › {c['name']}" if prefix else c["name"]
-                    keys.add(k)
-                    walk(c, k)
-        try:
-            walk(json.loads(body), "")
-        except ValueError:
-            return True
-        _tool_keys["body"], _tool_keys["keys"] = body, frozenset(keys)
-    return name in _tool_keys["keys"]
 
 
 TOOL_RE = re.compile(r"[^\x00-\x1f\x7f<>]{1,200}")   # название инструмента: без управляющих символов и <>
@@ -851,7 +802,7 @@ async def track(request: Request, b: Track):
     """hb — пульс (время на сайте и «онлайн»), select/bot/eternal — действия с инструментами."""
     if b.ev not in ("hb", "select", "bot", "eternal") or not re.fullmatch(r"[\w-]{8,64}", b.sid):
         return JSONResponse({"ok": False}, status_code=400)
-    if b.tool is not None and not (TOOL_RE.fullmatch(b.tool) and known_tool(b.tool)):
+    if b.tool is not None and not TOOL_RE.fullmatch(b.tool):
         return JSONResponse({"ok": False}, status_code=400)
     ip = client_ip(request)
     key = access_key(request, b.k)
@@ -890,7 +841,7 @@ class Rate(BaseModel):
 @app.post("/api/rate")
 async def rate(request: Request, b: Rate):
     """Оценка инструмента от 1 до 5 звёзд. Один человек — одна (перезаписываемая) оценка на инструмент."""
-    if not TOOL_RE.fullmatch(b.tool) or not known_tool(b.tool) or not (1 <= b.stars <= 5):
+    if not TOOL_RE.fullmatch(b.tool) or not (1 <= b.stars <= 5):
         return JSONResponse({"ok": False}, status_code=400)
     key = access_key(request, b.k)
     uid = await uid_by_token(key, client_ip(request))
@@ -907,21 +858,6 @@ async def rate(request: Request, b: Rate):
     return JSONResponse({"ok": True, "avg": round(row["av"] or 0, 1), "count": row["n"], "mine": b.stars}, headers=NOSTORE)
 
 
-async def status_map() -> dict:
-    """Статусы всех инструментов (автопроверка + ручные от админа): для сайта и для ИИ-ассистента."""
-    rows = await pool.fetch(
-        "select tool, kind, state, message, extract(epoch from now() - checked_at)::int as age from tool_status")
-    out = {r["tool"]: {"s": r["state"], "m": r["message"], "k": r["kind"], "a": r["age"], "bad": r["state"] in mon.BAD}
-           for r in rows}
-    out.update(cat.manual_status())          # статус, выставленный админом вручную, главнее автопроверки
-    return out
-
-
-async def ratings_summary() -> dict:
-    rows = await pool.fetch("select tool, avg(stars)::float av, count(*) n from ratings group by tool")
-    return {r["tool"]: {"avg": round(r["av"] or 0, 1), "count": r["n"]} for r in rows}
-
-
 @app.get("/api/status")
 async def status_api(request: Request, k: str = ""):
     """Статусы всех инструментов (результат автопроверки): s — состояние, m — текст, a — возраст проверки в секундах."""
@@ -931,7 +867,12 @@ async def status_api(request: Request, k: str = ""):
         return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
     if not TOK_STATUS.hit(key):
         return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
-    return JSONResponse(await status_map(), headers=NOSTORE)
+    rows = await pool.fetch(
+        "select tool, kind, state, message, extract(epoch from now() - checked_at)::int as age from tool_status")
+    out = {r["tool"]: {"s": r["state"], "m": r["message"], "k": r["kind"], "a": r["age"], "bad": r["state"] in mon.BAD}
+           for r in rows}
+    out.update(cat.manual_status())          # статус, выставленный админом вручную, главнее автопроверки
+    return JSONResponse(out, headers=NOSTORE)
 
 
 @app.get("/api/ratings")
@@ -1033,21 +974,13 @@ def session_state(req: Request) -> str:
 
 def check_origin(req: Request):
     """POST в админку принимаем только со страницы самого сайта (защита от CSRF поверх SameSite=Strict)."""
-    # Origin обязателен: браузер всегда шлёт его при POST из fetch; запрос без него — не со страницы админки
     origin = req.headers.get("origin")
-    if not origin or urlsplit(origin).netloc != req.headers.get("host", ""):
+    if origin and urlsplit(origin).netloc != req.headers.get("host", ""):
         raise HTTPException(403)
-
-
-def probe_alert(req: Request):
-    ip = client_ip(req)
-    alerts.notify("probe", "Кто-то с чужого IP пробует открыть админку", f"IP {ip}\n{req.method} {req.url.path}",
-                  key=ip, cooldown=900)
 
 
 def guard(req: Request, full: bool = True):
     if not ip_ok(req):
-        probe_alert(req)
         raise HTTPException(404)
     if req.method == "POST":
         check_origin(req)
@@ -1096,7 +1029,6 @@ except OSError:
 
 def admin_page(req: Request):
     if not ip_ok(req):
-        probe_alert(req)
         return RedirectResponse(main_url(req), status_code=302)
     return FileResponse(ADMIN_HTML, headers={"Cache-Control": "no-store", "Content-Security-Policy": ADMIN_CSP})
 
@@ -1133,16 +1065,13 @@ async def admin_login(request: Request, body: Login):
     if not admin_enabled():
         return JSONResponse({"error": "Админка не настроена: задайте ADMIN_LOGIN, ADMIN_PASSWORD и ADMIN_TOTP_SECRET."}, status_code=503)
     if is_locked(ip):
-        alerts.notify("admin", "Вход в админку заблокирован: слишком много неверных попыток", f"IP {ip}", key="lock", cooldown=600)
         return JSONResponse({"error": "Слишком много попыток. Подождите 15 минут."}, status_code=429)
     ok = hmac.compare_digest(body.login.encode(), ADMIN_LOGIN.encode()) & \
         hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode())
     if not ok:
         add_fail(ip)
-        alerts.notify("admin", "Неверный логин или пароль админки", f"IP {ip}", key="pw" + ip, cooldown=120)
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный логин или пароль."}, status_code=401)
-    alerts.notify("admin", "Пароль админки верный, ждём код 2FA", f"IP {ip}", key="pre", cooldown=60)
     resp = JSONResponse({"ok": True, "step": "2fa"})
     put_cookie(resp, request, "hpre", new_token("pre", ip, 300), 300)
     return resp
@@ -1158,10 +1087,8 @@ async def admin_2fa(request: Request, body: Code):
         return JSONResponse({"error": "Слишком много попыток. Подождите 15 минут."}, status_code=429)
     if not verify_totp(body.code):
         add_fail(ip)
-        alerts.notify("admin", "Неверный код 2FA админки", f"IP {ip}", key="2fa" + ip, cooldown=120)
         await asyncio.sleep(0.7)
         return JSONResponse({"error": "Неверный код."}, status_code=401)
-    alerts.notify("admin", "Вход в админку выполнен", f"IP {ip}")
     drop_session(request, "hpre")          # код подтверждения одноразовый
     resp = JSONResponse({"ok": True})
     put_cookie(resp, request, "hadm", new_token("full", ip, 4 * 3600), 4 * 3600)
@@ -1467,17 +1394,14 @@ async def admin_user(request: Request, tg_id: int = ApiPath(ge=0, le=10**15)):
 
 
 # ---- каталог: правка через админку
-async def _cat_call(coro, what: str = "", ip: str = "", detail: str = ""):
+async def _cat_call(coro):
     try:
         res = await coro
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400, headers=NOSTORE)
     except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
         log.warning("каталог: ошибка базы: %s", e)
-        alerts.notify("db", "Каталог: ошибка базы данных", type(e).__name__, key="catdb", cooldown=300)
         return JSONResponse({"error": "База недоступна, попробуйте ещё раз"}, status_code=503, headers=NOSTORE)
-    if what:
-        alerts.notify("catalog", f"Каталог изменён: {what}", f"{detail[:150]}\nIP {ip}")
     return JSONResponse({"ok": True, "id": res if isinstance(res, int) else None}, headers=NOSTORE)
 
 
@@ -1511,29 +1435,26 @@ async def admin_catalog_export(request: Request):
 @app.post("/admin/api/catalog/create")
 async def admin_catalog_create(request: Request):
     guard(request)
-    d = await _json_body(request)
-    return await _cat_call(cat.create(pool, d), "добавлено", client_ip(request), f"{d.get('kind')}: {d.get('name')}")
+    return await _cat_call(cat.create(pool, await _json_body(request)))
 
 
 @app.post("/admin/api/catalog/update")
 async def admin_catalog_update(request: Request):
     guard(request)
-    d = await _json_body(request)
-    return await _cat_call(cat.update(pool, d), "изменено", client_ip(request), f"id {d.get('id')}: {d.get('name') or ''}")
+    return await _cat_call(cat.update(pool, await _json_body(request)))
 
 
 @app.post("/admin/api/catalog/delete")
 async def admin_catalog_delete(request: Request):
     guard(request)
-    d = await _json_body(request)
-    return await _cat_call(cat.delete(pool, d.get("id")), "удалено", client_ip(request), f"id {d.get('id')}")
+    return await _cat_call(cat.delete(pool, (await _json_body(request)).get("id")))
 
 
 @app.post("/admin/api/catalog/move")
 async def admin_catalog_move(request: Request):
     guard(request)
     d = await _json_body(request)
-    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")), "перемещено", client_ip(request), f"id {d.get('id')} {d.get('dir')}")
+    return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")))
 
 
 # ====================== страницы и поддомены ======================
@@ -1558,22 +1479,8 @@ async def ai_page():
     return FileResponse(BASE / "static" / "ai.html")
 
 
-def is_subdomain(req: Request) -> bool:
-    """about.<домен>, admin.<домен> и любые другие поддомены основного сайта (SITE_URL)."""
-    host = req.headers.get("host", "").split(":")[0].lower().rstrip(".")
-    if host.startswith(("about.", "admin.")):
-        return True
-    main = (urlsplit(SITE_URL).hostname or "").lower() if SITE_URL else ""
-    return bool(main) and host != main and host.endswith("." + main)
-
-
-# Пользовательское соглашение доступно ТОЛЬКО на основном домене. На поддоменах (about., admin., …)
-# и по прямому адресу /terms.html отдаём не страницу, а переход на основной сайт.
 @app.get("/terms")
-@app.get("/terms.html")
-async def terms_page(request: Request):
-    if is_subdomain(request):
-        return RedirectResponse(main_url(request) + "terms", status_code=302)
+async def terms_page():
     return FileResponse(BASE / "static" / "terms.html")
 
 
