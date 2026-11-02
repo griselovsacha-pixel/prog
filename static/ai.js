@@ -189,14 +189,33 @@
   }
 
   // ---------- UI ----------
+  // ---- автопрокрутка к новому сообщению
+  // Поле ввода «прилипает» к низу экрана и перекрывает конец сообщения, поэтому обычный scrollIntoView(end) не годился:
+  // короткое сообщение ставим так, чтобы его низ был чуть выше поля ввода, а длинный ответ — началом вверх,
+  // чтобы читать с первой строки (а не с конца).
+  const REDUCE = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)');
+  const absTop = (n) => { let y = 0; while (n) { y += n.offsetTop; n = n.offsetParent; } return y; };   // без учёта анимации появления
+  function reveal(el, mode) {
+    // два кадра: ждём, пока браузер пересчитает высоту страницы после добавления/удаления сообщений
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!el.isConnected) return;
+      const comp = document.querySelector('.composer');
+      const view = window.innerHeight - (comp ? comp.offsetHeight : 0);   // видимая область над полем ввода
+      const top = absTop(el), h = el.offsetHeight, GAP = 72;              // 72px — запас под кнопку «На главную»
+      const y = mode === 'answer' && h + GAP > view ? top - GAP : top + h - view + 14;
+      window.scrollTo({ top: Math.max(0, y), behavior: REDUCE && REDUCE.matches ? 'auto' : 'smooth' });
+    }));
+  }
   function add(cls, text, links, tools, lang) {
     const d = document.createElement('div');
     d.className = 'msg ' + cls;
     if (text !== undefined) { if (cls.indexOf('ai') >= 0) render(d, text, links, tools, lang); else d.textContent = text; }
     log.appendChild(d);
-    d.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    reveal(d, cls === 'ai' ? 'answer' : 'bottom');
     return d;
   }
+  // фокус в поле ввода без прыжка страницы; на телефоне не открываем клавиатуру поверх ответа
+  const focusInput = () => { if (!(window.matchMedia && matchMedia('(pointer: coarse)').matches)) q.focus({ preventScroll: true }); };
   // анимация ожидания: светящийся «шар» с орбитами, мерцающий статус, скелетон-строки и таймер
   const PHASES = {
     ru: ['Читаю ваш вопрос', 'Ищу в каталоге', 'Подбираю инструменты', 'Формулирую ответ'],
@@ -233,7 +252,7 @@
     el('b', '', sk); el('b', '', sk); el('b', '', sk);
     txt.textContent = phases[0] + '…';
     log.appendChild(d);
-    d.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    reveal(d, 'bottom');
 
     const t0 = Date.now();
     let i = 0, slow = false;
@@ -298,7 +317,7 @@
     }
     busy = false;
     sync();
-    q.focus();
+    focusInput();
   }
 
   form.addEventListener('submit', (e) => { e.preventDefault(); ask(q.value); });
@@ -311,5 +330,5 @@
     if (b) ask(b.textContent);
   });
   sync();
-  q.focus();
+  focusInput();
 })();
