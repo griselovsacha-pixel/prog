@@ -74,7 +74,7 @@ function highlight(d) {
 }
 
 function fit(nodes) {
-  const W = svg.node().clientWidth - (panelOpen && innerWidth > 760 ? PANEL_W : 0);
+  const W = svg.node().clientWidth - (panelOpen && innerWidth > 760 ? PANEL_W + (document.body.classList.contains('rev-open') && innerWidth > 1280 ? 400 : 0) : 0);
   const H = svg.node().clientHeight, TOP = innerWidth <= 700 ? 176 : 152, BOT = 50, PADX = 50;
   const minX = d3.min(nodes, d => d.px - GAPL - d.w - 12);
   const maxX = d3.max(nodes, d => d.px + R + 12);
@@ -264,6 +264,7 @@ function showPanel(d) {
   curTool = d.ancestors().reverse().slice(1).map(n => n.data.name).join(' › ');
   track('select', curTool);
   renderRating(curTool);
+  window.HReviews && HReviews.onTool(curTool);
   togglePanel(true);
   requestAnimationFrame(updateFade);
   setTimeout(updateFade, 450);
@@ -274,7 +275,7 @@ function togglePanel(on) {
   $('panel').classList.toggle('open', on);
   $('panel').setAttribute('aria-hidden', String(!on));
   document.body.classList.toggle('panel-open', on);
-  if (!on) { selNode = null; nodeG.selectAll('g.node').classed('sel', false); }
+  if (!on) { selNode = null; nodeG.selectAll('g.node').classed('sel', false); window.HReviews && HReviews.close(true); }
   update(root);
 }
 
@@ -314,7 +315,11 @@ $('btnEternal').addEventListener('click', () => track('eternal', curTool));
 $('btnEternal').addEventListener('auxclick', () => track('eternal', curTool));
 $('close').onclick = () => togglePanel(false);
 svg.on('click', () => { if (panelOpen) togglePanel(false); else clearFound(); });
-addEventListener('keydown', e => e.key === 'Escape' && panelOpen && togglePanel(false));
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (window.HReviews && HReviews.isOpen()) HReviews.close();      // сначала закрываем отзывы, потом карточку
+  else if (panelOpen) togglePanel(false);
+});
 addEventListener('resize', () => root && update(root));
 
 function setTheme(t) {
@@ -367,6 +372,7 @@ function renderRating(tool) {
       </span>
     </div>`;
   box.querySelectorAll('.rb').forEach(btn => btn.onclick = () => sendRating(tool, +btn.dataset.n));
+  window.HReviews && HReviews.sync();      // звёзды в шапке панели отзывов
 }
 async function sendRating(tool, stars) {
   if (!K) return;
@@ -452,6 +458,8 @@ const NO_INTRO = document.documentElement.classList.contains('nointro');   // р
   try { init(res.data); startBeat(); } catch (e) { deny('Ошибка: ' + (e && e.message ? e.message : e)); }
   if (K) fetch('/api/ratings', { headers: { 'X-Access-Key': K } })
     .then(r => (r.ok ? r.json() : {})).then(d => { RATINGS = d || {}; }).catch(() => {});
+  if (K) fetch('/api/reviews/counts', { headers: { 'X-Access-Key': K } })
+    .then(r => (r.ok ? r.json() : {})).then(d => { window.HReviews && HReviews.setCounts(d && !d.error ? d : {}); }).catch(() => {});
   if (K) fetch('/api/status', { headers: { 'X-Access-Key': K } })
     .then(r => (r.ok ? r.json() : {})).then(d => {
       STATUS = d && !d.error ? d : {}; STATUS_AT = Date.now();
