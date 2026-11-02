@@ -126,6 +126,7 @@ create table if not exists users(
     created_at timestamptz not null default now()
 );
 alter table users add column if not exists terms_accepted_at timestamptz;
+alter table users add column if not exists review_ban boolean not null default false;
 create table if not exists visits(
     id bigserial primary key,
     tg_id bigint not null references users(tg_id),
@@ -174,6 +175,18 @@ create table if not exists ratings(
     primary key (tg_id, tool)
 );
 create index if not exists ratings_tool_idx on ratings(tool);
+create table if not exists reviews(
+    tg_id bigint not null,
+    tool text not null,
+    body text not null,
+    hidden boolean not null default false,
+    edited boolean not null default false,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    primary key (tg_id, tool)
+);
+create index if not exists reviews_tool_idx on reviews(tool, created_at desc);
+create index if not exists reviews_created_idx on reviews(created_at desc);
 create table if not exists tool_status(
     tool text primary key,
     kind text not null,
@@ -187,6 +200,7 @@ create table if not exists tool_status(
 alter table tool_status enable row level security;
 alter table users enable row level security;
 alter table ratings enable row level security;
+alter table reviews enable row level security;
 alter table visits enable row level security;
 alter table join_requests enable row level security;
 alter table sessions enable row level security;
@@ -702,6 +716,9 @@ TOK_EVENTS = sec.Limiter(60, 600)    # на один токен: записей 
 TOK_RATE = sec.Limiter(20, 600)      # на один токен: оценок инструментов за 10 минут
 TOK_AI = sec.Limiter(8, 60)          # на один токен: вопросов ИИ-ассистенту в минуту
 TOK_RATINGS = sec.Limiter(20, 60)    # на один токен: чтение сводного рейтинга
+TOK_REVIEW_W = sec.Limiter(12, 600)  # на один токен: публикаций/правок/удалений отзывов за 10 минут
+TOK_REVIEW_R = sec.Limiter(60, 60)   # на один токен: чтение отзывов инструмента
+TOK_REVCNT = sec.Limiter(20, 60)     # на один токен: чтение счётчиков отзывов
 TOK_STATUS = sec.Limiter(20, 60)     # на один токен: чтение статусов инструментов
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
 NOSTORE = {"Cache-Control": "no-store"}
@@ -944,6 +961,152 @@ async def ratings(request: Request, k: str = ""):
     )
     out = {r["tool"]: {"avg": round(r["av"] or 0, 1), "count": r["n"], "mine": r["mine"]} for r in rows}
     return JSONResponse(out, headers=NOSTORE)
+
+
+# ====================== ОТЗЫВЫ ======================
+REVIEW_MIN, REVIEW_MAX, REVIEWS_PAGE = 3, 1000, 20
+# в отзывах нельзя оставлять ссылки: каталог не должен становиться площадкой для спама и рекламы
+REVIEW_LINK_RE = re.compile(r"https?://|www\.|(?:t|telegram)\.me/", re.I)
+_REVIEW_JUNK = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+
+
+def clean_review(raw) -> str:
+    """Текст отзыва: без управляющих и «невидимых» символов, не больше одной пустой строки подряд."""
+    t = _REVIEW_JUNK.sub("", str(raw or "")).replace("\r\n", "\n").replace("\r", "\n")
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"[ \t]{3,}", "  ", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+def review_error(text: str, admin: bool = False) -> str | None:
+    if len(text) < REVIEW_MIN:
+        return "Отзыв слишком короткий: напишите хотя бы пару слов."
+    if len(text) > REVIEW_MAX:
+        return f"Отзыв слишком длинный: не больше {REVIEW_MAX} символов."
+    if not admin and REVIEW_LINK_RE.search(text):
+        return "Ссылки в отзывах не допускаются."
+    return None
+
+
+def review_author(full_name: str | None) -> str:
+    """Публично показываем только первое слово имени."""
+    first = ((full_name or "").split() or [""])[0]
+    return re.sub(r"[<>]", "", first)[:24] or "Пользователь"
+
+
+def review_item(r, uid: int) -> dict:
+    return {
+        "name": review_author(r["full_name"]), "h": (r["tg_id"] * 37) % 360,
+        "text": r["body"], "stars": r["stars"], "edited": r["edited"], "hidden": r["hidden"],
+        "at": r["created_at"].isoformat(), "mine": r["tg_id"] == uid,
+    }
+
+
+REVIEW_SELECT = """select r.tg_id, r.body, r.hidden, r.edited, r.created_at, u.full_name, rt.stars
+                   from reviews r left join users u on u.tg_id = r.tg_id
+                   left join ratings rt on rt.tg_id = r.tg_id and rt.tool = r.tool"""
+
+
+class ReviewIn(BaseModel):
+    k: str = Field(default="", max_length=100)
+    tool: str = Field(max_length=200)
+    text: str = Field(default="", max_length=3000)
+
+
+@app.get("/api/reviews")
+async def reviews_list(request: Request, tool: str = "", offset: int = 0, k: str = ""):
+    """Отзывы одного инструмента: свой (если есть) отдельно, остальные страницами от новых к старым."""
+    if not TOOL_RE.fullmatch(tool):
+        return JSONResponse({"error": "bad"}, status_code=400, headers=NOSTORE)
+    key = access_key(request, k)
+    uid = await uid_by_token(key, client_ip(request))
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_REVIEW_R.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    offset = max(0, min(offset, 100000))
+    rows, mine, total, banned = await asyncio.gather(
+        pool.fetch(f"{REVIEW_SELECT} where r.tool = $1 and r.tg_id <> $2 and not r.hidden "
+                   "order by r.created_at desc, r.tg_id limit $3 offset $4", tool, uid, REVIEWS_PAGE + 1, offset),
+        pool.fetchrow(f"{REVIEW_SELECT} where r.tool = $1 and r.tg_id = $2", tool, uid),
+        pool.fetchval("select count(*) from reviews where tool = $1 and not hidden", tool),
+        pool.fetchval("select review_ban from users where tg_id = $1", uid),
+    )
+    return JSONResponse({
+        "items": [review_item(r, uid) for r in rows[:REVIEWS_PAGE]], "more": len(rows) > REVIEWS_PAGE,
+        "mine": review_item(mine, uid) if mine else None, "total": total, "banned": bool(banned),
+    }, headers=NOSTORE)
+
+
+@app.get("/api/reviews/counts")
+async def reviews_counts(request: Request, k: str = ""):
+    """Сколько отзывов у каждого инструмента (для счётчика на кнопке «Отзывы»)."""
+    key = access_key(request, k)
+    uid = await uid_by_token(key, client_ip(request))
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_REVCNT.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    rows = await pool.fetch("select tool, count(*) n from reviews where not hidden group by tool")
+    return JSONResponse({r["tool"]: r["n"] for r in rows}, headers=NOSTORE)
+
+
+@app.post("/api/review")
+async def review_save(request: Request, b: ReviewIn):
+    """Написать или изменить отзыв. Один человек — один отзыв на инструмент: повторная отправка заменяет текст."""
+    if not TOOL_RE.fullmatch(b.tool):
+        return JSONResponse({"error": "bad"}, status_code=400, headers=NOSTORE)
+    key = access_key(request, b.k)
+    ip = client_ip(request)
+    uid = await uid_by_token(key, ip)
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_REVIEW_W.hit(key):
+        return JSONResponse({"error": "rate", "message": "Слишком часто. Подождите несколько минут."},
+                            status_code=429, headers={**NOSTORE, "Retry-After": "60"})
+    text = clean_review(b.text)
+    err = review_error(text)
+    if err:
+        return JSONResponse({"error": "invalid", "message": err}, status_code=400, headers=NOSTORE)
+    if not cat.has_tool(b.tool):
+        return JSONResponse({"error": "no_tool", "message": "Такого инструмента нет в каталоге."},
+                            status_code=404, headers=NOSTORE)
+    if await pool.fetchval("select review_ban from users where tg_id = $1", uid):
+        return JSONResponse({"error": "banned", "message": "Вам закрыта возможность оставлять отзывы."},
+                            status_code=403, headers=NOSTORE)
+    old = await pool.fetchval("select body from reviews where tg_id = $1 and tool = $2", uid, b.tool)
+    if old is None:
+        await pool.execute("insert into reviews(tg_id, tool, body) values($1, $2, $3) on conflict do nothing",
+                           uid, b.tool, text)
+    elif old != text:                # скрытый модератором отзыв после правки остаётся скрытым
+        await pool.execute("update reviews set body = $3, edited = true, updated_at = now() where tg_id = $1 and tool = $2",
+                           uid, b.tool, text)
+    if old != text:
+        await site_alert("tool", "Отзыв изменён" if old is not None else "Новый отзыв", uid,
+                         f"{b.tool}\n{text[:300]}", ip)
+    row = await pool.fetchrow(f"{REVIEW_SELECT} where r.tool = $1 and r.tg_id = $2", b.tool, uid)
+    total = await pool.fetchval("select count(*) from reviews where tool = $1 and not hidden", b.tool)
+    return JSONResponse({"ok": True, "mine": review_item(row, uid), "total": total}, headers=NOSTORE)
+
+
+@app.post("/api/review/delete")
+async def review_delete(request: Request, b: ReviewIn):
+    """Автор удаляет свой отзыв (после этого можно написать новый)."""
+    if not TOOL_RE.fullmatch(b.tool):
+        return JSONResponse({"error": "bad"}, status_code=400, headers=NOSTORE)
+    key = access_key(request, b.k)
+    ip = client_ip(request)
+    uid = await uid_by_token(key, ip)
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_REVIEW_W.hit(key):
+        return JSONResponse({"error": "rate", "message": "Слишком часто. Подождите несколько минут."},
+                            status_code=429, headers={**NOSTORE, "Retry-After": "60"})
+    gone = await pool.execute("delete from reviews where tg_id = $1 and tool = $2", uid, b.tool)
+    if gone.endswith(" 1"):
+        await site_alert("tool", "Отзыв удалён автором", uid, b.tool, ip)
+    total = await pool.fetchval("select count(*) from reviews where tool = $1 and not hidden", b.tool)
+    return JSONResponse({"ok": True, "total": total}, headers=NOSTORE)
 
 
 # ====================== АДМИНКА ======================
@@ -1310,7 +1473,9 @@ async def admin_users(request: Request, q: str = "", offset: int = 0, limit: int
                    (select count(*) from events e where e.tg_id = u.tg_id and e.ev = 'select') tools_opened,
                    (select count(*) from events e where e.tg_id = u.tg_id and e.ev = 'bot') bot_clicks,
                    (select count(*) from events e where e.tg_id = u.tg_id and e.ev = 'eternal') eternal_clicks,
-                   (select count(*) from ratings r where r.tg_id = u.tg_id) ratings
+                   (select count(*) from ratings r where r.tg_id = u.tg_id) ratings,
+                   (select count(*) from reviews rv where rv.tg_id = u.tg_id) reviews,
+                   u.review_ban
             from users u where {where} order by u.created_at desc, u.tg_id desc
             limit ${n + 1} offset ${n + 2}""", *params, limit, offset)
     ids = [r["tg_id"] for r in rows]
@@ -1527,6 +1692,126 @@ async def admin_catalog_move(request: Request):
     guard(request)
     d = await _json_body(request)
     return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")), f"перемещён id={d.get('id')} ({d.get('dir')})")
+
+
+# ---- отзывы: модерация через админку
+def _review_where(q: str, tool: str, status: str) -> tuple[str, list]:
+    cond, args = ["true"], []
+    if tool:
+        args.append(tool[:200])
+        cond.append(f"r.tool = ${len(args)}")
+    if status == "hidden":
+        cond.append("r.hidden")
+    elif status == "visible":
+        cond.append("not r.hidden")
+    elif status == "banned":
+        cond.append("coalesce(u.review_ban, false)")
+    q = q.strip().lstrip("@")[:100]
+    if q:
+        if re.fullmatch(r"[0-9]{1,15}", q):
+            args.append(int(q))
+            cond.append(f"r.tg_id = ${len(args)}")
+        else:
+            esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            args.append("%" + esc + "%")
+            n = len(args)
+            cond.append(f"(r.body ilike ${n} or r.tool ilike ${n} or u.full_name ilike ${n} or u.username ilike ${n})")
+    return " and ".join(cond), args
+
+
+@app.get("/admin/api/reviews")
+async def admin_reviews(request: Request, q: str = "", tool: str = "", status: str = "all",
+                        offset: int = 0, limit: int = 30):
+    guard(request)
+    offset, limit = max(0, min(offset, 10**7)), max(1, min(limit, 100))
+    where, args = _review_where(q, tool, status)
+    n = len(args)
+    base = "from reviews r left join users u on u.tg_id = r.tg_id"
+    total = await pool.fetchval(f"select count(*) {base} where {where}", *args)
+    rows = await pool.fetch(
+        f"""select r.tg_id, r.tool, r.body, r.hidden, r.edited, r.created_at, r.updated_at,
+                   u.full_name, u.username, coalesce(u.review_ban, false) review_ban,
+                   (select stars from ratings rt where rt.tg_id = r.tg_id and rt.tool = r.tool) stars
+            {base} where {where} order by r.created_at desc, r.tg_id
+            limit ${n + 1} offset ${n + 2}""", *args, limit, offset)
+    out = {"items": [dict(r) for r in rows], "total": total, "offset": offset, "limit": limit}
+    if offset == 0:
+        st = await pool.fetchrow(
+            """select count(*) total, count(*) filter (where hidden) hidden,
+                      count(*) filter (where created_at > now() - interval '7 days') week,
+                      count(distinct tool) tools, count(distinct tg_id) authors from reviews""")
+        out["stats"] = dict(st)
+        out["banned"] = await pool.fetchval("select count(*) from users where review_ban")
+    return jsonable_encoder(out)
+
+
+def _rev_key(d: dict) -> tuple[int, str]:
+    try:
+        uid = int(d.get("tg_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400)
+    tool = d.get("tool")
+    if not isinstance(tool, str) or not TOOL_RE.fullmatch(tool):
+        raise HTTPException(400)
+    return uid, tool
+
+
+@app.post("/admin/api/reviews/update")
+async def admin_review_update(request: Request):
+    """Скрыть/показать отзыв или поправить его текст."""
+    guard(request)
+    d = await _json_body(request)
+    uid, tool = _rev_key(d)
+    sets, args = [], [uid, tool]
+    if "hidden" in d:
+        args.append(bool(d["hidden"]))
+        sets.append(f"hidden = ${len(args)}")
+    if "body" in d:
+        text = clean_review(d["body"])
+        err = review_error(text, admin=True)
+        if err:
+            return JSONResponse({"error": err}, status_code=400, headers=NOSTORE)
+        args.append(text)
+        sets.append(f"body = ${len(args)}")
+    if not sets:
+        raise HTTPException(400)
+    done = await pool.execute(f"update reviews set {', '.join(sets)} where tg_id = $1 and tool = $2", *args)
+    if not done.endswith(" 1"):
+        return JSONResponse({"error": "Отзыв не найден (возможно, его уже удалили)"}, status_code=404, headers=NOSTORE)
+    what = ("скрыт" if d["hidden"] else "показан") if "hidden" in d else "отредактирован"
+    alerts.notify("admin", f"Отзыв {what}", f"автор ID {uid}\n{tool}")
+    return JSONResponse({"ok": True}, headers=NOSTORE)
+
+
+@app.post("/admin/api/reviews/delete")
+async def admin_review_delete(request: Request):
+    guard(request)
+    d = await _json_body(request)
+    uid, tool = _rev_key(d)
+    await pool.execute("delete from reviews where tg_id = $1 and tool = $2", uid, tool)
+    alerts.notify("admin", "Отзыв удалён админом", f"автор ID {uid}\n{tool}")
+    return JSONResponse({"ok": True}, headers=NOSTORE)
+
+
+@app.post("/admin/api/reviews/ban")
+async def admin_review_ban(request: Request):
+    """Запретить (или вернуть) автору возможность писать отзывы; purge — заодно удалить все его отзывы."""
+    guard(request)
+    d = await _json_body(request)
+    try:
+        uid = int(d.get("tg_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400)
+    banned = bool(d.get("banned", True))
+    done = await pool.execute("update users set review_ban = $2 where tg_id = $1", uid, banned)
+    if not done.endswith(" 1"):
+        return JSONResponse({"error": "Пользователь не найден"}, status_code=404, headers=NOSTORE)
+    purged = 0
+    if banned and d.get("purge"):
+        purged = int((await pool.execute("delete from reviews where tg_id = $1", uid)).split()[-1])
+    alerts.notify("admin", "Отзывы: запрещено автору" if banned else "Отзывы: разрешено автору",
+                  f"ID {uid}" + (f"\nудалено отзывов: {purged}" if purged else ""))
+    return JSONResponse({"ok": True, "purged": purged}, headers=NOSTORE)
 
 
 # ====================== страницы и поддомены ======================
