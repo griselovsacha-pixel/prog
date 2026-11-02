@@ -43,6 +43,7 @@ import bot_features as bf
 import catalog as cat
 import monitor as mon
 import security as sec
+import seo
 
 logging.basicConfig(level=logging.INFO)
 sec.install_log_masking()   # токены доступа (?k=…) и токен бота не попадают в логи
@@ -639,6 +640,8 @@ async def lifespan(app: FastAPI):
         log.warning("ADMIN_SESSION_SECRET не задан (или короче 32 символов): сессии админа сбрасываются при перезапуске")
     if not sec.ORIGIN_SECRET:
         log.warning("ORIGIN_SECRET не задан: сайт доступен в обход вашего Cloudflare (см. SECURITY.md)")
+    if not SITE_URL:
+        log.warning("SITE_URL не задан: canonical и sitemap.xml будут без адреса сайта, поиск их не примет")
 
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     # алерты владельцу в личку: ALERT_CHAT_ID, иначе TOOL_REVIEW_CHAT (этот аккаунт должен хоть раз нажать /start у бота)
@@ -1823,7 +1826,14 @@ async def root_page(request: Request):
         return FileResponse(BASE / "static" / "about.html")
     if host.startswith("admin."):
         return admin_page(request)
-    return FileResponse(BASE / "static" / "index.html")
+    if "k" in request.query_params:                      # персональная ссылка из бота: само приложение (noindex)
+        return FileResponse(BASE / "static" / "index.html", headers=NOSTORE)
+    # гость и поисковый робот: обычная HTML-страница с описанием каталога; у кого токен лежит в этой вкладке,
+    # того static/home-gate.js сразу перекинет на /?k=…
+    page = seo.render_home()
+    if page is None:
+        return FileResponse(BASE / "static" / "index.html", headers=NOSTORE)
+    return Response(page, media_type="text/html; charset=utf-8")
 
 
 @app.get("/about")
@@ -1845,5 +1855,9 @@ async def terms_page():
 async def collab_page():
     return FileResponse(BASE / "static" / "collab.html")
 
+
+# публичный слой для поисковиков (/osint…, sitemap.xml, robots.txt) — до StaticFiles, иначе его перехватит mount
+seo.configure(tools_json=tools_json, site=SITE_URL, channel=CHANNEL_LINK)
+app.include_router(seo.router)
 
 app.mount("/", StaticFiles(directory=BASE / "static", html=True), name="static")
