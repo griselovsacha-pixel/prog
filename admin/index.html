@@ -134,6 +134,27 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
 .cform .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cform .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 .cform .err{min-height:18px}
+
+.rlist{display:flex;flex-direction:column;gap:10px}
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;display:flex;flex-direction:column;gap:9px;min-width:0}
+.rcard.hid{border-style:dashed;background:#1d1d1d}
+.rcard.hid .rbody{opacity:.65}
+.rhead{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px}
+.rhead .who{color:var(--hi);font-weight:700;cursor:pointer;overflow-wrap:anywhere}
+.rhead .who:hover{color:var(--blue)}
+.rhead .st{color:#f5b942;letter-spacing:1px;font-size:13px}
+.rhead .st i{font-style:normal;color:#3a3a3a}
+.rhead .dim{color:var(--mute);font-size:12px}
+.rtool{font-size:12.5px;color:var(--accent);cursor:pointer;overflow-wrap:anywhere}
+.rtool:hover{text-decoration:underline}
+.rbody{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--hi);line-height:1.55}
+.ract2{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.rcard textarea{width:100%;min-height:90px;resize:vertical;background:#181818;border:1px solid var(--line);color:var(--hi);padding:9px 12px;border-radius:9px;font:inherit}
+.rcard textarea:focus,.cbar select:focus{outline:none;border-color:var(--accent)}
+.cbar select{background:var(--card);border:1px solid var(--line);color:var(--hi);border-radius:10px;padding:0 12px;font:inherit}
+.tag.warn{color:var(--amber);border-color:#5a4a22}
+.tag.bad{color:#e5736f;border-color:#6b3533}
+.btn.ok:hover{border-color:var(--green);color:var(--green)}
 @media (max-width:700px){.cform .two{grid-template-columns:1fr}.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}.ulist{grid-template-columns:1fr}main{padding:14px}}
 </style>
 </head>
@@ -142,7 +163,7 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
   <header class="top">
     <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy · Admin</div>
     <nav class="tabs">
-      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button>
+      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button><button data-tab="reviews">Отзывы</button>
     </nav>
     <div class="right"><span><i class="dot"></i><b id="liveN">—</b> онлайн</span><button id="logout">Выйти</button></div>
   </header>
@@ -182,6 +203,17 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
         <button class="btn" id="cExport">Скачать JSON</button></div>
       <div class="ctree" id="ctree"><div class="empty">Загрузка…</div></div>
       <p class="mute" style="margin-top:10px;font-size:12px">Статус «Авто» — решает ежедневная проверка. Если выбрать вручную, проверка этот инструмент пропускает, пока не вернёте «Авто». Изменения видны на сайте сразу.</p>
+    </section>
+
+    <section id="tab-reviews" hidden>
+      <div class="kpis" id="kRev"></div>
+      <div class="cbar" style="margin-top:16px"><input id="rq" placeholder="Поиск: текст отзыва, инструмент, имя, @username или ID" autocomplete="off">
+        <select id="rstatus"><option value="all">Все отзывы</option><option value="visible">Опубликованные</option><option value="hidden">Скрытые</option><option value="banned">Авторы с запретом</option></select>
+        <button class="btn" id="rtoolX" hidden></button></div>
+      <div class="ulist-head"><span id="rcount">Загрузка…</span></div>
+      <div id="rlist" class="rlist"></div>
+      <div class="more" id="rmore" hidden><button id="rmoreBtn">Показать ещё</button></div>
+      <p class="mute" style="margin-top:10px;font-size:12px">Скрытый отзыв видит только его автор (с пометкой), остальным он не показывается и не входит в счётчик. Если автор правит скрытый отзыв, он остаётся скрытым. Запрет закрывает автору возможность писать и править отзывы; удалять свои он может. Ссылки в отзывах пользователей блокируются автоматически — у админа это ограничение не действует.</p>
     </section>
     <div id="cmodal" hidden><form class="cform" id="cform"></form></div>
   </main>
@@ -355,6 +387,7 @@ function userCard(u) {
       ${kvRow('Устройство', u.user_agent ? dev(u.user_agent) + ' <span class="mute">' + esc(u.user_agent.slice(0, 80)) + '</span>' : '—')}
       ${kvRow('Инструменты', `открыл ${u.tools_opened} · в бота ${u.bot_clicks} · вечная ${u.eternal_clicks}`)}
       ${kvRow('Оценок', u.ratings)}
+      ${kvRow('Отзывов', (u.reviews ? `<a class="ip" data-rev="${u.tg_id}" title="Открыть отзывы автора">${u.reviews}</a>` : '0') + (u.review_ban ? ' <span class="tag bad">писать запрещено</span>' : ''))}
     </dl>
     <h5>IP-адреса</h5><div>${ipRows(u.ips)}</div>
     <div class="uact"><button type="button" data-open="${u.tg_id}">Подробнее</button></div>
@@ -438,10 +471,14 @@ async function openUser(id) {
 
 /* делегирование: карточки и IP-строки создаются динамически, inline-обработчики запрещены CSP */
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-chk],[data-open],a.ip,#backBtn');
+  const t = e.target.closest('[data-chk],[data-open],[data-rev],a.ip,#backBtn');
   if (!t) return;
   if (t.dataset.chk) checkIp(t);
   else if (t.dataset.open) openUser(t.dataset.open);
+  else if (t.dataset.rev) {                      // «Отзывов: N» в карточке пользователя → вкладка отзывов с фильтром по автору
+    RV.q = t.dataset.rev; RV.status = 'all'; RV.tool = ''; $('#rq').value = RV.q; $('#rstatus').value = 'all';
+    document.querySelector('.tabs button[data-tab="reviews"]').click(); window.scrollTo({top: 0});
+  }
   else if (t.id === 'backBtn') closeUser();
   else if (t.classList.contains('ip')) { $('#q').value = t.dataset.ip; search(); window.scrollTo({top: 0}); }
 });
@@ -554,7 +591,7 @@ $('#ctree').addEventListener('click', async e => {
   else if (a === 'up' || a === 'down') catPost('move', {id, dir: a === 'up' ? -1 : 1});
   else if (a === 'del') {
     const cnt = n.kind === 'category' ? ` вместе со всем, что внутри (${CAT.filter(x => x.parent_id === id).length} эл. на первом уровне)` : '';
-    if (confirm(`Удалить «${n.name}»${cnt}? Рейтинги этого инструмента тоже удалятся. Отменить нельзя.`)) catPost('delete', {id});
+    if (confirm(`Удалить «${n.name}»${cnt}? Оценки и отзывы этого инструмента тоже удалятся. Отменить нельзя.`)) catPost('delete', {id});
   }
 });
 $('#ctree').addEventListener('change', e => {
@@ -565,8 +602,90 @@ $('#cNewRoot').onclick = () => openForm('new', 'category', null, CAT.find(n => n
 $('#cExport').onclick = () => { location.href = '/admin/api/catalog/export'; };
 let cqT; $('#cq').addEventListener('input', e => { clearTimeout(cqT); cqT = setTimeout(() => { CAT_Q = e.target.value.trim(); renderCatalog(); }, 120); });
 
+
+/* ---------- отзывы ---------- */
+const RV = {q: '', status: 'all', tool: '', offset: 0, total: 0, loading: false, items: [], edit: null};
+const RV_PAGE = 30;
+const rvKey = r => r.tg_id + '|' + r.tool;
+function rvStars(n) { return n ? `<span class="st">${'★'.repeat(n)}<i>${'★'.repeat(5 - n)}</i></span>` : ''; }
+function rvCard(r, i) {
+  const who = (r.full_name || '—') + (r.username ? ' @' + r.username : '');
+  const editing = RV.edit === rvKey(r);
+  return `<div class="rcard${r.hidden ? ' hid' : ''}" data-i="${i}">
+    <div class="rhead"><span class="who" data-a="user" title="Все отзывы этого автора">${esc(who)}</span>
+      <span class="dim">ID ${r.tg_id}</span>${rvStars(r.stars)}
+      <span class="dim">${when(r.created_at)}${r.edited ? ' · изменён ' + when(r.updated_at) : ''}</span>
+      ${r.hidden ? '<span class="tag warn">скрыт</span>' : ''}${r.review_ban ? '<span class="tag bad">автору запрещено</span>' : ''}</div>
+    <div class="rtool" data-a="tool" title="Только этот инструмент">${esc(r.tool)}</div>
+    ${editing ? `<textarea maxlength="1000" data-a="text">${esc(r.body)}</textarea>
+      <div class="ract2"><button class="btn pri sm" data-a="save">Сохранить</button><button class="btn sm" data-a="cancel">Отмена</button></div>`
+    : `<div class="rbody">${esc(r.body)}</div>
+      <div class="ract2"><button class="btn sm${r.hidden ? ' ok' : ''}" data-a="hide">${r.hidden ? 'Показать' : 'Скрыть'}</button>
+        <button class="btn sm" data-a="edit">Править</button><button class="btn sm del" data-a="del">Удалить</button>
+        <button class="btn sm${r.review_ban ? ' ok' : ' del'}" data-a="ban">${r.review_ban ? 'Разрешить автору отзывы' : 'Запретить автору'}</button></div>`}
+  </div>`;
+}
+function rvDraw() {
+  $('#rlist').innerHTML = RV.items.map(rvCard).join('') || '<div class="empty">Отзывов нет</div>';
+  $('#rmore').hidden = RV.items.length >= RV.total;
+  const x = $('#rtoolX'); x.hidden = !RV.tool; x.textContent = RV.tool ? '✕ ' + RV.tool.split(' › ').pop() : '';
+  const f = RV.q || RV.status !== 'all' || RV.tool;
+  $('#rcount').textContent = (f ? 'Найдено: ' : 'Всего отзывов: ') + num(RV.total);
+}
+async function loadReviews(reset) {
+  if (RV.loading) return;
+  RV.loading = true;
+  if (reset) { RV.offset = 0; RV.items = []; RV.edit = null; $('#rcount').textContent = 'Загрузка…'; }
+  const r = await api(`reviews?limit=${RV_PAGE}&offset=${RV.offset}&status=${RV.status}&tool=${encodeURIComponent(RV.tool)}&q=${encodeURIComponent(RV.q)}`);
+  RV.loading = false;
+  if (!r.ok) { $('#rcount').textContent = 'Не удалось загрузить отзывы'; return; }
+  const d = r.data;
+  RV.total = d.total; RV.items = RV.items.concat(d.items); RV.offset = RV.items.length;
+  if (d.stats) kpis($('#kRev'), [['Всего отзывов', num(d.stats.total), 'инструментов с отзывами: ' + num(d.stats.tools)],
+    ['За 7 дней', num(d.stats.week)], ['Скрытых', num(d.stats.hidden)], ['Авторов', num(d.stats.authors), 'с запретом писать: ' + num(d.banned)]]);
+  rvDraw();
+}
+async function rvAct(card, a) {
+  const r = RV.items[+card.dataset.i], body = {tg_id: r.tg_id, tool: r.tool};
+  if (a === 'user') { $('#rq').value = String(r.tg_id); RV.q = String(r.tg_id); return loadReviews(true); }
+  if (a === 'tool') { RV.tool = r.tool; return loadReviews(true); }
+  if (a === 'edit') { RV.edit = rvKey(r); return rvDraw(); }
+  if (a === 'cancel') { RV.edit = null; return rvDraw(); }
+  let res;
+  if (a === 'save') res = await api('reviews/update', {...body, body: card.querySelector('textarea').value});
+  else if (a === 'hide') res = await api('reviews/update', {...body, hidden: !r.hidden});
+  else if (a === 'del') { if (!confirm('Удалить отзыв? Автор сможет написать новый. Отменить нельзя.')) return; res = await api('reviews/delete', body); }
+  else if (a === 'ban') {
+    const ban = !r.review_ban;
+    if (ban && !confirm('Запретить этому автору писать отзывы?')) return;
+    const purge = ban && confirm('Заодно удалить ВСЕ его отзывы?\nOK — удалить, Отмена — оставить.');
+    res = await api('reviews/ban', {tg_id: r.tg_id, banned: ban, purge});
+  }
+  if (!res) return;
+  if (!res.ok) { alert(res.data.error || 'Ошибка'); return; }
+  RV.edit = null;
+  const keep = RV.offset; RV.offset = 0; RV.items = [];     // перечитываем уже показанные страницы
+  RV.loading = false;
+  const r2 = await api(`reviews?limit=${Math.max(keep, RV_PAGE)}&offset=0&status=${RV.status}&tool=${encodeURIComponent(RV.tool)}&q=${encodeURIComponent(RV.q)}`);
+  if (r2.ok) {
+    RV.total = r2.data.total; RV.items = r2.data.items; RV.offset = RV.items.length;
+    if (r2.data.stats) kpis($('#kRev'), [['Всего отзывов', num(r2.data.stats.total), 'инструментов с отзывами: ' + num(r2.data.stats.tools)],
+      ['За 7 дней', num(r2.data.stats.week)], ['Скрытых', num(r2.data.stats.hidden)], ['Авторов', num(r2.data.stats.authors), 'с запретом писать: ' + num(r2.data.banned)]]);
+    rvDraw();
+  }
+}
+$('#rlist').addEventListener('click', e => {
+  const b = e.target.closest('[data-a]'), card = e.target.closest('.rcard');
+  if (b && card) rvAct(card, b.dataset.a);
+});
+$('#rmoreBtn').onclick = () => loadReviews(false);
+$('#rstatus').onchange = e => { RV.status = e.target.value; loadReviews(true); };
+$('#rtoolX').onclick = () => { RV.tool = ''; loadReviews(true); };
+let rqT; $('#rq').addEventListener('input', e => { clearTimeout(rqT); rqT = setTimeout(() => { RV.q = e.target.value.trim(); loadReviews(true); }, 300); });
+let RV_LOADED = false;
+
 /* ---------- вход ---------- */
-function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); USERS_LOADED = false; $('#results').innerHTML = ''; $('#detail').innerHTML = ''; $('#listwrap').hidden = false; $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
+function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); USERS_LOADED = false; $('#results').innerHTML = ''; $('#detail').innerHTML = ''; $('#rlist').innerHTML = ''; RV.items = []; $('#listwrap').hidden = false; $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
 function unlock() {
   document.body.classList.remove('locked'); $('#gate').hidden = true;
   loadStats(); timers.push(setInterval(pollOnline, 10000), setInterval(loadStats, 60000));
@@ -585,8 +704,9 @@ $('#f2').onsubmit = async e => {
 $('#logout').onclick = async () => { await api('logout', {}); lock(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['bot', 'site', 'users', 'catalog'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  ['bot', 'site', 'users', 'catalog', 'reviews'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
   if (b.dataset.tab === 'catalog') loadCatalog();
+  if (b.dataset.tab === 'reviews') { RV_LOADED = true; loadReviews(true); }
   if (b.dataset.tab === 'users' && !USERS_LOADED) { USERS_LOADED = true; loadUsers(true); }
 });
 $('#go').onclick = search;
