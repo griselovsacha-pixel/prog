@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harledy Project — сборник инструментов</title>
 <script src="/intro-gate.js?v=1"></script>
-<link rel="stylesheet" href="/style.css?v=12">
+<link rel="stylesheet" href="/style.css?v=14">
 </head>
 <body class="intro">
 <div id="hud" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
@@ -66,6 +66,10 @@
     <div id="ptags"></div>
     <div id="pstatus" class="st mute"></div>
     <div id="prating"></div>
+    <button id="revM" class="revm" type="button" aria-controls="rev">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.6-4.8A8.4 8.4 0 1 1 21 11.5z"/></svg>
+      <span>Отзывы</span><span class="revcnt" hidden></span><i aria-hidden="true">›</i>
+    </button>
   </div>
   <div class="pfoot">
     <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота ↗</a>
@@ -74,8 +78,27 @@
   </div>
 </aside>
 
+<button id="revTab" type="button" aria-controls="rev" aria-expanded="false" title="Отзывы об инструменте">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.6-4.8A8.4 8.4 0 1 1 21 11.5z"/></svg>
+  <span class="rlab">Отзывы</span><span class="revcnt" hidden></span>
+</button>
+<aside id="rev" aria-hidden="true" aria-label="Отзывы об инструменте">
+  <button id="revClose" type="button" aria-label="Закрыть отзывы">&times;</button>
+  <div class="rhead">
+    <div class="kicker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.6-4.8A8.4 8.4 0 1 1 21 11.5z"/></svg>Отзывы</div>
+    <h3 id="revTitle"></h3>
+  </div>
+  <div id="revSum"></div>
+  <div id="revBody">
+    <div id="revForm"></div>
+    <div id="revList"></div>
+    <div id="revMore"></div>
+  </div>
+</aside>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="/search.js?v=10"></script>
-<script src="/app.js?v=10"></script>
+<script src="/app.js?v=11"></script>
+<script src="/reviews.js?v=2"></script>
 </body>
 </html>
