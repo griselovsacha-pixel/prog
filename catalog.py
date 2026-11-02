@@ -67,13 +67,19 @@ alter table catalog_nodes enable row level security;
 """
 
 _lock = asyncio.Lock()
-_state = {"body": None, "manual": {}, "sig": None}
+_state = {"body": None, "manual": {}, "sig": None, "leaves": frozenset()}
 
 
 # ====================== кэш в памяти ======================
 def body() -> bytes | None:
     """Готовый JSON каталога (bytes) — отдаётся мгновенно, без базы."""
     return _state["body"]
+
+
+def has_tool(key: str) -> bool:
+    """Есть ли в каталоге инструмент (лист) с таким ключом «Категория › … › Название» — для отзывов и оценок."""
+    leaves = _state["leaves"]
+    return not leaves or key in leaves        # каталог ещё не загружен (сбой базы при старте) — не блокируем
 
 
 def manual_status() -> dict:
@@ -176,6 +182,8 @@ async def refresh(pool) -> bool:
             return False
         _state["body"] = json.dumps(tree, ensure_ascii=False, separators=(",", ":")).encode()
         _state["manual"] = _manual_for(rows, tree)
+        keys = _keys(rows)
+        _state["leaves"] = frozenset(keys[r["id"]] for r in rows if r["kind"] == "tool")
         _state["sig"] = _sig(rows)
         return True
 
@@ -377,9 +385,9 @@ async def _rekey(conn, old: str, new: str) -> None:
     """Переименование/перенос: рейтинги, статусы и события переезжают на новый ключ (и для вложенных узлов)."""
     if not old or old == new:
         return
-    for t in ("ratings", "tool_status"):                    # на новом месте не должно остаться чужих хвостов
+    for t in ("ratings", "reviews", "tool_status"):         # на новом месте не должно остаться чужих хвостов
         await conn.execute(f"delete from {t} where tool = $1 or left(tool, length($1) + 3) = $1 || ' › '", new)
-    for t in ("ratings", "tool_status", "events"):
+    for t in ("ratings", "reviews", "tool_status", "events"):
         await conn.execute(
             f"update {t} set tool = $2 || substr(tool, length($1) + 1) "
             f"where tool = $1 or left(tool, length($1) + 3) = $1 || ' › '", old, new)
@@ -494,7 +502,7 @@ async def delete(pool, nid) -> None:
             raise ValueError("Корневую ветку удалить нельзя")
         key = _keys(rows)[nid]
         await c.execute("delete from catalog_nodes where id = $1", nid)      # вложенное удаляется каскадом
-        for t in ("ratings", "tool_status"):
+        for t in ("ratings", "reviews", "tool_status"):
             await c.execute(f"delete from {t} where tool = $1 or left(tool, length($1) + 3) = $1 || ' › '", key)
     await refresh(pool)
 
