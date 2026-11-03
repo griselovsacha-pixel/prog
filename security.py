@@ -43,6 +43,7 @@ ORIGIN_HEADER = os.environ.get("ORIGIN_SECRET_HEADER", "x-origin-secret").strip(
 ALLOWED_HOSTS = [h.strip().lower().lstrip(".") for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
 MAX_BODY = _int_env("MAX_BODY", 4096, 256, 1_000_000)
 MAX_BODY_AI = _int_env("MAX_BODY_AI", 24576, 1024, 1_000_000)   # вопрос + история диалога для /api/ai
+MAX_BODY_BROADCAST = _int_env("MAX_BODY_BROADCAST", 131072, 4096, 1_000_000)   # пост рассылки: 4096 символов + 100 форматирований
 MAX_INFLIGHT = _int_env("MAX_INFLIGHT", 64, 4, 1000)
 REQ_TIMEOUT = _int_env("REQ_TIMEOUT", 30, 5, 120)
 REQ_TIMEOUT_AI = _int_env("REQ_TIMEOUT_AI", 45, 10, 120)         # цепочка моделей Gemini дольше обычного запроса
@@ -366,6 +367,8 @@ class Shield:
                 _alert("scan", "Прямой запрос в обход Cloudflare", scope, key)
                 return await _deny(send, scope, 403, "forbidden")
         body_cap = MAX_BODY_AI if kind == "ai" else MAX_BODY
+        if kind == "admin" and path.startswith("/admin/api/broadcast"):    # только админка за сессией и IP-фильтром
+            body_cap = MAX_BODY_BROADCAST
         cl = header(scope, b"content-length")
         # isdigit() пропускает «²» и подобные символы, а int() на них падает: проверяем только ASCII-цифры
         if cl and (not (cl.isascii() and cl.isdigit()) or len(cl) > 9 or int(cl) > body_cap):
