@@ -28,7 +28,8 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    CallbackQuery, ChatJoinRequest, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    CallbackQuery, ChatJoinRequest, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions,
+    Message, MessageEntity,
 )
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import Path as ApiPath
@@ -40,6 +41,7 @@ from pydantic import BaseModel, Field
 import ai_assistant as ai
 import alerts
 import bot_features as bf
+import broadcast as bcast
 import catalog as cat
 import monitor as mon
 import security as sec
@@ -198,7 +200,24 @@ create table if not exists tool_status(
     checked_at timestamptz not null default now(),
     ok_at timestamptz
 );
+create table if not exists broadcasts(
+    id bigserial primary key,
+    created_at timestamptz not null default now(),
+    finished_at timestamptz,
+    status text not null default 'running',
+    text text not null,
+    entities jsonb not null default '[]'::jsonb,
+    silent boolean not null default false,
+    no_preview boolean not null default false,
+    total int not null default 0,
+    sent int not null default 0,
+    blocked int not null default 0,
+    failed int not null default 0,
+    plain int not null default 0,
+    error text
+);
 alter table tool_status enable row level security;
+alter table broadcasts enable row level security;
 alter table users enable row level security;
 alter table ratings enable row level security;
 alter table reviews enable row level security;
@@ -209,6 +228,7 @@ alter table events enable row level security;
 """
 
 pool: asyncpg.Pool | None = None
+broadcaster: "bcast.Broadcaster | None" = None     # рассылка из админки; создаётся в lifespan
 router = Router()
 
 # ---- подпись пользователя в алертах с сайта (имя берём из базы, кэшируем)
@@ -617,6 +637,27 @@ async def catalog_loop():
             await cat.poll(pool)
 
 
+def make_broadcaster(bot: Bot) -> "bcast.Broadcaster":
+    """Рассылка из админки. Текст и форматирование уходят в Telegram как есть (entities), без parse_mode."""
+
+    async def send_post(chat_id: int, text: str, entities: list, silent: bool, no_preview: bool):
+        await bot.send_message(
+            chat_id, text, parse_mode=None, entities=[MessageEntity(**e) for e in entities] or None,
+            disable_notification=silent or None,
+            link_preview_options=LinkPreviewOptions(is_disabled=True) if no_preview else None)
+
+    async def emoji_lookup(ids: list[str]) -> dict:
+        got = await bot.get_custom_emoji_stickers(ids)
+        return {st.custom_emoji_id: st.emoji or "🙂" for st in got if st.custom_emoji_id}
+
+    async def pack_lookup(name: str) -> list:
+        st = await bot.get_sticker_set(name)
+        return [(x.custom_emoji_id, x.emoji or "🙂") for x in st.stickers if x.custom_emoji_id][:200]
+
+    return bcast.Broadcaster(bcast.PgStore(pool), send_post, emoji_lookup=emoji_lookup, pack_lookup=pack_lookup,
+                             notify=lambda kind, title, body="": alerts.notify(kind, title, body))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
@@ -648,6 +689,12 @@ async def lifespan(app: FastAPI):
     alerts.install_log_handler()
     alerts.start(bot, int(os.environ.get("ALERT_CHAT_ID") or TOOL_REVIEW_CHAT), ADMIN_TZ)
     alerts.notify("start", "Сервер запущен")
+    global broadcaster
+    broadcaster = make_broadcaster(bot)
+    try:                                  # рассылка, которую прервал перезапуск сервера, помечаем в истории
+        await broadcaster.store.interrupted()
+    except Exception as e:
+        log.warning("рассылки: не удалось пометить прерванные: %s", e)
     dp = Dispatcher()
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
@@ -667,6 +714,7 @@ async def lifespan(app: FastAPI):
     ]
     yield
     alerts.notify("stop", "Сервер останавливается")
+    await broadcaster.stop()
     await alerts.stop()
     await assistant.aclose()
     for t in tasks:
@@ -1695,6 +1743,92 @@ async def admin_catalog_move(request: Request):
     guard(request)
     d = await _json_body(request)
     return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")), f"перемещён id={d.get('id')} ({d.get('dir')})")
+
+
+# ---- рассылка всем пользователям бота
+async def _bc_call(make):
+    """make(broadcaster) -> корутина. Ошибки проверки поста и недоступность базы возвращаем админу текстом."""
+    if broadcaster is None:
+        return JSONResponse({"error": "Рассылка ещё не готова, повторите через несколько секунд."}, status_code=503, headers=NOSTORE)
+    try:
+        res = await make(broadcaster)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400, headers=NOSTORE)
+    except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
+        log.warning("рассылка: ошибка базы: %s", e)
+        return JSONResponse({"error": "База недоступна, попробуйте ещё раз."}, status_code=503, headers=NOSTORE)
+    return JSONResponse(res, headers=NOSTORE)
+
+
+def _bc_post(d: dict) -> "bcast.Post":
+    return bcast.clean_post(d.get("text"), d.get("entities"), d.get("silent"), d.get("no_preview"))
+
+
+@app.get("/admin/api/broadcast")
+async def admin_broadcast_state(request: Request):
+    guard(request)
+
+    async def go(b):
+        st = await b.state()
+        st["test_to"] = TOOL_REVIEW_CHAT          # подсказка для проверки: владелец
+        return st
+    return await _bc_call(go)
+
+
+@app.get("/admin/api/broadcast/progress")
+async def admin_broadcast_progress(request: Request):
+    """Лёгкий опрос во время отправки: без обращения к базе."""
+    guard(request)
+    if broadcaster is None:
+        return JSONResponse({"progress": None, "running": False}, headers=NOSTORE)
+    return JSONResponse({"progress": broadcaster.progress(), "running": broadcaster.running}, headers=NOSTORE)
+
+
+@app.post("/admin/api/broadcast/emoji")
+async def admin_broadcast_emoji(request: Request):
+    guard(request)
+    d = await _json_body(request)
+    return await _bc_call(lambda b: b.lookup_emoji(d.get("ids")))
+
+
+@app.post("/admin/api/broadcast/pack")
+async def admin_broadcast_pack(request: Request):
+    guard(request)
+    d = await _json_body(request)
+    return await _bc_call(lambda b: b.emoji_pack(d.get("name")))
+
+
+@app.post("/admin/api/broadcast/test")
+async def admin_broadcast_test(request: Request):
+    guard(request)
+    d = await _json_body(request)
+
+    async def go(b):
+        return await b.test(_bc_post(d), d.get("chat_id"))
+    return await _bc_call(go)
+
+
+@app.post("/admin/api/broadcast/start")
+async def admin_broadcast_start(request: Request):
+    guard(request)
+    d = await _json_body(request)
+
+    async def go(b):
+        res = await b.start(_bc_post(d))
+        alerts.notify("admin", "Запуск рассылки из админки", f"IP: {client_ip(request)}")
+        return res
+    return await _bc_call(go)
+
+
+@app.post("/admin/api/broadcast/cancel")
+async def admin_broadcast_cancel(request: Request):
+    guard(request)
+    if broadcaster is None:
+        raise HTTPException(503)
+    stopped = broadcaster.cancel()
+    if stopped:
+        alerts.notify("admin", "Рассылка отменена из админки", f"IP: {client_ip(request)}")
+    return JSONResponse({"ok": True, "cancelled": stopped}, headers=NOSTORE)
 
 
 # ---- отзывы: модерация через админку
