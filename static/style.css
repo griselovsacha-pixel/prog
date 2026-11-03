@@ -409,3 +409,4 @@ body.rev-open #revTab .revcnt{background:rgba(255,255,255,.24);color:#fff}
 .bn-x{position:absolute;top:6px;right:8px;width:24px;height:24px;border:0;background:none;color:var(--mute);font-size:19px;line-height:1;cursor:pointer}
 .bn-x:hover{color:var(--fg-h)}
 @media (max-width:600px){.bn{left:12px;bottom:46px}.bn-ico{width:42px;height:42px}}
+.bn-img{border-radius:12px;object-fit:cover;opacity:1}
