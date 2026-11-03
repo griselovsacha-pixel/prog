@@ -391,3 +391,21 @@ body.rev-open #revTab .revcnt{background:rgba(255,255,255,.24);color:#fff}
   #revBody{padding:14px 18px 24px}
 }
 @media (prefers-reduced-motion:reduce){.rv{animation:none}.rsk i,.rsk b{animation:none}}
+
+/* ---------- рекламный баннер (левый нижний угол) ---------- */
+.bn{position:fixed;left:20px;bottom:52px;z-index:5;width:min(318px,calc(100vw - 40px));padding:16px 16px 16px 18px;
+  display:flex;align-items:flex-end;gap:10px;overflow:hidden;
+  background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.28);
+  opacity:0;transform:translateY(14px);pointer-events:none;transition:opacity .35s,transform .35s}
+.bn.on{opacity:1;transform:none;pointer-events:auto}
+.bn-body{flex:1;min-width:0}
+.bn-t{font-size:16px;font-weight:800;color:var(--fg-h);line-height:1.2;padding-right:18px}
+.bn-d{margin-top:6px;font-size:12.5px;line-height:1.4;color:var(--fg)}
+.bn-b{margin-top:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:999px;
+  background:var(--fg-h);color:var(--bg);font-size:13px;font-weight:700;text-decoration:none;transition:transform .15s,opacity .2s}
+.bn-b:hover{transform:translateY(-1px);opacity:.9}
+.bn-b i{font-style:normal}
+.bn-ico{flex:none;width:54px;height:54px;color:var(--fg-h);opacity:.95;align-self:center}
+.bn-x{position:absolute;top:6px;right:8px;width:24px;height:24px;border:0;background:none;color:var(--mute);font-size:19px;line-height:1;cursor:pointer}
+.bn-x:hover{color:var(--fg-h)}
+@media (max-width:600px){.bn{left:12px;bottom:46px}.bn-ico{width:42px;height:42px}}
