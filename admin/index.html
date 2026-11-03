@@ -198,7 +198,7 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
   <header class="top">
     <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy · Admin</div>
     <nav class="tabs">
-      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button><button data-tab="reviews">Отзывы</button><button data-tab="broadcast">Рассылка</button>
+      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button><button data-tab="reviews">Отзывы</button><button data-tab="broadcast">Рассылка</button><button data-tab="banner">Баннер</button>
     </nav>
     <div class="right"><span><i class="dot"></i><b id="liveN">—</b> онлайн</span><button id="logout">Выйти</button></div>
   </header>
@@ -249,6 +249,24 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
       <div id="rlist" class="rlist"></div>
       <div class="more" id="rmore" hidden><button id="rmoreBtn">Показать ещё</button></div>
       <p class="mute" style="margin-top:10px;font-size:12px">Скрытый отзыв видит только его автор (с пометкой), остальным он не показывается и не входит в счётчик. Если автор правит скрытый отзыв, он остаётся скрытым. Запрет закрывает автору возможность писать и править отзывы; удалять свои он может. Ссылки в отзывах пользователей блокируются автоматически — у админа это ограничение не действует.</p>
+    </section>
+    <section id="tab-banner" hidden>
+      <div class="card" style="max-width:640px">
+        <h3>Баннер на сайте</h3>
+        <p class="mute" style="font-size:12px;margin-bottom:12px">Показывается посетителям в левом нижнем углу главной страницы. Закрытый баннер больше не появляется у этого человека, пока вы не сохраните изменения.</p>
+        <div class="cform">
+          <label><input type="checkbox" id="bnOn" style="width:auto;margin-right:8px">Показывать баннер на сайте</label>
+          <label>Заголовок</label><input id="bnTitle" maxlength="60" placeholder="Название сервиса" autocomplete="off">
+          <label>Текст</label><textarea id="bnText" maxlength="200" placeholder="Коротко, что умеет сервис"></textarea>
+          <label>Текст кнопки</label><input id="bnBtn" maxlength="40" autocomplete="off">
+          <label>Ссылка кнопки (https://…)</label><input id="bnUrl" maxlength="500" placeholder="https://t.me/…" autocomplete="off" spellcheck="false">
+          <label><input type="checkbox" id="bnIcon" style="width:auto;margin-right:8px" checked>Иконка-планета</label>
+        </div>
+        <div class="bc-row" style="margin-top:14px;gap:10px;align-items:center">
+          <button class="btn pri" id="bnSave">Сохранить</button>
+          <span id="bnMsg" class="mute" style="font-size:13px"></span>
+        </div>
+      </div>
     </section>
     <section id="tab-broadcast" hidden>
       <div class="kpis" id="kBc"></div>
@@ -1188,12 +1206,30 @@ $('#f2').onsubmit = async e => {
   if (r.ok) { $('#code').value = ''; unlock(); } else { $('#e2').textContent = r.data.error || 'Ошибка'; $('#code').value = ''; }
 };
 $('#logout').onclick = async () => { await api('logout', {}); lock(); };
+/* ---------- баннер сайта ---------- */
+async function loadBanner() {
+  const r = await api('banner');
+  if (!r.ok) { $('#bnMsg').textContent = 'Не удалось загрузить'; return; }
+  const b = r.data;
+  $('#bnOn').checked = !!b.enabled; $('#bnTitle').value = b.title || ''; $('#bnText').value = b.text || '';
+  $('#bnBtn').value = b.button || ''; $('#bnUrl').value = b.url || ''; $('#bnIcon').checked = b.icon !== false;
+  $('#bnMsg').textContent = '';
+}
+$('#bnSave').onclick = async () => {
+  const msg = $('#bnMsg'); msg.style.color = ''; msg.textContent = 'Сохраняю…';
+  const r = await api('banner/save', {enabled: $('#bnOn').checked, title: $('#bnTitle').value, text: $('#bnText').value,
+    button: $('#bnBtn').value, url: $('#bnUrl').value, icon: $('#bnIcon').checked});
+  if (r.ok) { msg.textContent = r.data.enabled ? 'Сохранено — баннер включён' : 'Сохранено — баннер выключен'; }
+  else { msg.style.color = '#e5736f'; msg.textContent = r.data.error || 'Ошибка'; }
+};
+
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['bot', 'site', 'users', 'catalog', 'reviews', 'broadcast'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  ['bot', 'site', 'users', 'catalog', 'reviews', 'broadcast', 'banner'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
   if (b.dataset.tab === 'catalog') loadCatalog();
   if (b.dataset.tab === 'reviews') { RV_LOADED = true; loadReviews(true); }
   if (b.dataset.tab === 'broadcast') loadBroadcast();
+  if (b.dataset.tab === 'banner') loadBanner();
   if (b.dataset.tab === 'users' && !USERS_LOADED) { USERS_LOADED = true; loadUsers(true); }
 });
 $('#go').onclick = search;
