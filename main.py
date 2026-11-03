@@ -40,6 +40,7 @@ from pydantic import BaseModel, Field
 
 import ai_assistant as ai
 import alerts
+import banner as bnr
 import bot_features as bf
 import broadcast as bcast
 import catalog as cat
@@ -668,6 +669,7 @@ async def lifespan(app: FastAPI):
                                      command_timeout=10, timeout=15, **ssl_kw)
     async with pool.acquire() as c:
         await c.execute(SCHEMA)
+        await c.execute(bnr.SCHEMA)
     try:                                  # каталог: таблица, перенос из tools.json в пустую базу, загрузка в память
         await cat.init(pool, tools_file_json())
     except Exception as e:
@@ -771,6 +773,7 @@ TOK_REVIEW_W = sec.Limiter(12, 600)  # на один токен: публика�
 TOK_REVIEW_R = sec.Limiter(60, 60)   # на один токен: чтение отзывов инструмента
 TOK_REVCNT = sec.Limiter(20, 60)     # на один токен: чтение счётчиков отзывов
 TOK_STATUS = sec.Limiter(20, 60)     # на один токен: чтение статусов инструментов
+TOK_BANNER = sec.Limiter(20, 60)     # на один токен: чтение баннера
 DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков НЕИЗВЕСТНЫХ токенов в базе: ботнет с тысячами IP не завалит базу
 NOSTORE = {"Cache-Control": "no-store"}
 
@@ -994,6 +997,23 @@ async def status_api(request: Request, k: str = ""):
            for r in rows}
     out.update(cat.manual_status())          # статус, выставленный админом вручную, главнее автопроверки
     return JSONResponse(out, headers=NOSTORE)
+
+
+@app.get("/api/banner")
+async def banner_api(request: Request, k: str = ""):
+    """Баннер для сайта (левый нижний угол). Как и каталог — только по токену доступа."""
+    key = access_key(request, k)
+    uid = await uid_by_token(key, client_ip(request))
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_BANNER.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    try:
+        b = await bnr.load(pool)
+    except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
+        log.warning("баннер: база недоступна: %s", e)
+        return JSONResponse({"on": False}, headers=NOSTORE)       # сбой базы не должен ломать сайт
+    return JSONResponse(bnr.public(b), headers=NOSTORE)
 
 
 @app.get("/api/ratings")
@@ -1743,6 +1763,29 @@ async def admin_catalog_move(request: Request):
     guard(request)
     d = await _json_body(request)
     return await _cat_call(cat.move(pool, d.get("id"), d.get("dir")), f"перемещён id={d.get('id')} ({d.get('dir')})")
+
+
+# ---- баннер сайта
+@app.get("/admin/api/banner")
+async def admin_banner(request: Request):
+    guard(request)
+    return JSONResponse(await bnr.load(pool), headers=NOSTORE)
+
+
+@app.post("/admin/api/banner/save")
+async def admin_banner_save(request: Request):
+    guard(request)
+    d = await _json_body(request)
+    try:
+        b = await bnr.save(pool, d)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400, headers=NOSTORE)
+    except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
+        log.warning("баннер: не сохранён: %s", e)
+        return JSONResponse({"error": "База недоступна, попробуйте ещё раз."}, status_code=503, headers=NOSTORE)
+    alerts.notify("catalog", "Баннер " + ("включён" if b["enabled"] else "выключен"),
+                  f"{b['title'][:60]}\nIP: {client_ip(request)}")
+    return JSONResponse(b, headers=NOSTORE)
 
 
 # ---- рассылка всем пользователям бота
