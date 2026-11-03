@@ -56,7 +56,12 @@
       body.appendChild(a);
       box.appendChild(x);
       box.appendChild(body);
-      if (b.icon) box.appendChild(planet());
+      // своя картинка главнее планеты; принимаем только data:image (png/jpeg/webp), как проверено и на сервере
+      if (b.image && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(b.image)) {
+        var im = document.createElement('img');
+        im.className = 'bn-ico bn-img'; im.alt = ''; im.width = 54; im.height = 54; im.src = b.image;
+        box.appendChild(im);
+      } else if (b.icon) box.appendChild(planet());
       document.body.appendChild(box);
       setTimeout(function () { box.classList.add('on'); }, 2500);   // после заставки, не перебивает её
     })
