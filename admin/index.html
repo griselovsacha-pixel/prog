@@ -155,6 +155,41 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
 .tag.warn{color:var(--amber);border-color:#5a4a22}
 .tag.bad{color:#e5736f;border-color:#6b3533}
 .btn.ok:hover{border-color:var(--green);color:var(--green)}
+.bc-tools{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;align-items:center}
+.bc-tools .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.bc-tools button{background:none;border:1px solid var(--line);color:var(--fg);padding:4px 10px;border-radius:8px;min-width:34px;font-size:13px}
+.bc-tools button:hover{border-color:var(--fg);color:var(--hi)}
+.bc-tools button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.bc-ed{position:relative;min-height:230px;max-height:60vh;overflow:auto;resize:vertical;background:#181818;border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--hi);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;outline:none}
+.bc-ed:focus{border-color:var(--accent)}
+.bc-ed.empty::before{content:attr(data-ph);position:absolute;left:14px;top:12px;color:var(--mute);pointer-events:none}
+.bc-ed b,.bc-ed strong{font-weight:800}
+.bc-ed u{text-decoration:underline}
+.bc-ed s,.bc-ed strike,.bc-ed del{text-decoration:line-through}
+.bc-ed .sp{background:rgba(150,150,150,.3);border-radius:4px;padding:0 2px}
+.bc-ed code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;background:#111;border:1px solid #2c2c2c;border-radius:5px;padding:0 4px;color:#e6c07b}
+.bc-ed a{color:var(--blue);text-decoration:underline}
+.bc-ed blockquote{display:block;margin:2px 0;padding:4px 10px;border-left:3px solid var(--accent);background:rgba(79,134,179,.12);border-radius:0 8px 8px 0}
+.bc-ed blockquote[data-x]::before{content:"сворачиваемая цитата";display:block;font-size:10px;color:var(--mute);letter-spacing:.04em;user-select:none}
+.bc-ed pre{display:block;margin:2px 0;padding:8px 12px;background:#111;border:1px solid #2c2c2c;border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;color:#e6c07b;white-space:pre-wrap}
+.bc-ed pre[data-lang]::before{content:attr(data-lang);display:block;font-size:10px;color:var(--mute);user-select:none}
+.bc-ed .ce{background:rgba(155,120,255,.2);outline:1px dashed #8a6be0;border-radius:4px;padding:0 1px;margin:0 1px;cursor:default}
+.bc-meta{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--mute);font-size:12px;margin-top:8px}
+.bc-meta .bad{color:#e5736f;font-weight:700}
+.bc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.bc-row input[type=text]{flex:1;min-width:180px;background:#181818;border:1px solid var(--line);color:var(--hi);padding:8px 12px;border-radius:9px;font:inherit}
+.bc-row input[type=text]:focus{outline:none;border-color:var(--accent)}
+.bc-row label.chkl{display:flex;gap:6px;align-items:center;color:var(--fg);cursor:pointer}
+.bc-pack{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;max-height:190px;overflow:auto;padding:8px;background:#181818;border:1px solid var(--line);border-radius:10px}
+.bc-pack button{font-size:22px;line-height:1;padding:5px 7px;background:none;border:1px solid transparent;border-radius:8px}
+.bc-pack button:hover{border-color:#8a6be0;background:rgba(155,120,255,.15)}
+.bc-msg{min-height:20px;margin-top:10px;font-size:13px}
+.bc-msg.err{color:#e5736f}.bc-msg.ok{color:var(--green)}.bc-msg.warn{color:var(--amber)}
+.bc-prog .bar{height:8px;border-radius:5px;background:#2c2c2c;overflow:hidden;margin:10px 0}
+.bc-prog .bar i{display:block;height:100%;background:var(--green);transition:width .5s}
+.bc-prog.fail .bar i{background:#e5736f}
+.bc-hist td.tx{max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn.pri[disabled],.btn[disabled]{opacity:.5;cursor:not-allowed}
 @media (max-width:700px){.cform .two{grid-template-columns:1fr}.top{flex-wrap:wrap;padding:10px 14px}.grid2{grid-template-columns:1fr}.ulist{grid-template-columns:1fr}main{padding:14px}}
 </style>
 </head>
@@ -163,7 +198,7 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
   <header class="top">
     <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Harledy · Admin</div>
     <nav class="tabs">
-      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button><button data-tab="reviews">Отзывы</button>
+      <button data-tab="bot" class="on">Бот</button><button data-tab="site">Сайт</button><button data-tab="users">Пользователи</button><button data-tab="catalog">Каталог</button><button data-tab="reviews">Отзывы</button><button data-tab="broadcast">Рассылка</button>
     </nav>
     <div class="right"><span><i class="dot"></i><b id="liveN">—</b> онлайн</span><button id="logout">Выйти</button></div>
   </header>
@@ -214,6 +249,58 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
       <div id="rlist" class="rlist"></div>
       <div class="more" id="rmore" hidden><button id="rmoreBtn">Показать ещё</button></div>
       <p class="mute" style="margin-top:10px;font-size:12px">Скрытый отзыв видит только его автор (с пометкой), остальным он не показывается и не входит в счётчик. Если автор правит скрытый отзыв, он остаётся скрытым. Запрет закрывает автору возможность писать и править отзывы; удалять свои он может. Ссылки в отзывах пользователей блокируются автоматически — у админа это ограничение не действует.</p>
+    </section>
+    <section id="tab-broadcast" hidden>
+      <div class="kpis" id="kBc"></div>
+      <div class="card bc-prog" id="bcProg" style="margin-top:16px" hidden></div>
+      <div class="card" style="margin-top:16px">
+        <h3>Новая рассылка</h3>
+        <div class="bc-tools" id="bcTools">
+          <button type="button" data-c="bold" title="Жирный (Ctrl+B)"><b>Ж</b></button>
+          <button type="button" data-c="italic" title="Курсив (Ctrl+I)"><i>К</i></button>
+          <button type="button" data-c="underline" title="Подчёркнутый (Ctrl+U)"><u>П</u></button>
+          <button type="button" data-c="strikeThrough" title="Зачёркнутый"><s>З</s></button>
+          <button type="button" data-c="spoiler" title="Спойлер">Спойлер</button>
+          <span class="sep"></span>
+          <button type="button" data-c="code" title="Моноширинный (код в строке)">&lt;/&gt;</button>
+          <button type="button" data-c="pre" title="Блок кода (можно указать язык)">Блок кода</button>
+          <button type="button" data-c="quote" title="Цитата">Цитата</button>
+          <button type="button" data-c="xquote" title="Сворачиваемая цитата">Свёрн. цитата</button>
+          <span class="sep"></span>
+          <button type="button" data-c="link" title="Ссылка">Ссылка</button>
+          <button type="button" data-c="clear" title="Убрать форматирование у выделенного">Сброс</button>
+        </div>
+        <div id="bcEd" class="bc-ed empty" contenteditable="true" spellcheck="true" data-ph="Текст рассылки. Выделите фрагмент и примените форматирование."></div>
+        <div class="bc-meta"><span id="bcLen"></span><span id="bcEnt"></span></div>
+
+        <h4>Премиум-эмодзи</h4>
+        <div class="bc-row" style="margin-top:0">
+          <input type="text" id="bcEmoIds" placeholder="ID эмодзи (через пробел или запятую)" autocomplete="off">
+          <button type="button" class="btn" id="bcEmoAdd">Вставить по ID</button>
+        </div>
+        <div class="bc-row">
+          <input type="text" id="bcPackName" placeholder="Ссылка на набор: https://t.me/addemoji/…" autocomplete="off">
+          <button type="button" class="btn" id="bcPackLoad">Показать набор</button>
+        </div>
+        <div class="bc-pack" id="bcPack" hidden></div>
+        <p class="mute" style="font-size:12px;margin-top:8px">Эмодзи вставляется в место курсора и в редакторе показывается обычным смайликом с фиолетовой рамкой. Премиум-вид увидят в Telegram подписчики с Premium; остальные увидят обычный смайлик.</p>
+
+        <div class="bc-row">
+          <label class="chkl"><input type="checkbox" id="bcSilent"> Без звука</label>
+          <label class="chkl"><input type="checkbox" id="bcNoPrev"> Без предпросмотра ссылок</label>
+        </div>
+        <div class="bc-row">
+          <input type="text" id="bcTestTo" placeholder="Ваш Telegram ID для проверки" inputmode="numeric" autocomplete="off" style="max-width:260px">
+          <button type="button" class="btn" id="bcTest">Отправить тест себе</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn" id="bcClear">Очистить</button>
+          <button type="button" class="btn pri" id="bcStart">Отправить всем</button>
+        </div>
+        <div class="bc-msg" id="bcMsg"></div>
+      </div>
+      <h2>История рассылок</h2>
+      <div class="card bc-hist" id="bcHist"><div class="empty">Загрузка…</div></div>
+      <p class="mute" style="margin-top:10px;font-size:12px">Получатели — все, кто запускал бота (на момент старта рассылки). Сообщения уходят пачками с темпом ниже лимита Telegram; те, кто заблокировал бота, считаются отдельно. Пока идёт одна рассылка, вторую не запустить. Если сервер перезапустится во время отправки, рассылка прервётся и в истории будет видно, сколько доставлено.</p>
     </section>
     <div id="cmodal" hidden><form class="cform" id="cform"></form></div>
   </main>
@@ -684,8 +771,407 @@ $('#rtoolX').onclick = () => { RV.tool = ''; loadReviews(true); };
 let rqT; $('#rq').addEventListener('input', e => { clearTimeout(rqT); rqT = setTimeout(() => { RV.q = e.target.value.trim(); loadReviews(true); }, 300); });
 let RV_LOADED = false;
 
+/* ---------- рассылка ---------- */
+/* Редактор — contenteditable. Из его DOM собирается «текст + entities» (смещения в UTF-16, как у Telegram): сервер
+   шлёт это без parse_mode, поэтому экранировать ничего не нужно. Правила Telegram (код не сочетается с другим
+   форматированием, цитаты не вкладываются) соблюдаются уже при вводе, а сервер проверяет их ещё раз. */
+const BC = {loaded: false, state: null, poll: null, last: null, running: false};
+const BC_ED = $('#bcEd');
+const BC_INLINE = 'b,strong,i,em,u,ins,s,strike,del,.sp,a';
+const BC_LANG = /^[A-Za-z0-9_+#.\-]{1,30}$/;
+const BC_STATUS = {running: 'идёт', done: 'завершена', cancelled: 'отменена', aborted: 'остановлена', interrupted: 'прервана перезапуском'};
+
+function bcKind(n) {
+  const t = n.tagName;
+  if (t === 'B' || t === 'STRONG') return 'bold';
+  if (t === 'I' || t === 'EM') return 'italic';
+  if (t === 'U' || t === 'INS') return 'underline';
+  if (t === 'S' || t === 'STRIKE' || t === 'DEL') return 'strikethrough';
+  if (t === 'CODE') return 'code';
+  if (t === 'PRE') return 'pre';
+  if (t === 'A') return 'text_link';
+  if (t === 'BLOCKQUOTE') return n.hasAttribute('data-x') ? 'expandable_blockquote' : 'blockquote';
+  if (t === 'SPAN' && n.classList.contains('sp')) return 'spoiler';
+  if (t === 'DIV' || t === 'P') return 'block';
+  return null;
+}
+
+/* DOM → {text, entities}. Блоки (цитата, код, div) всегда начинаются и заканчиваются с новой строки. */
+function bcSerialize(root) {
+  let text = '', ents = [], after = false;
+  const flush = () => { if (after) { if (text && !text.endsWith('\n')) text += '\n'; after = false; } };
+  const open = () => { flush(); if (text && !text.endsWith('\n')) text += '\n'; };
+  (function walk(node) {
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) {
+        const v = n.nodeValue.replace(/[​﻿\r]/g, '').replace(/ /g, ' ');
+        if (v) { flush(); text += v; }
+        return;
+      }
+      if (n.nodeType !== 1) return;
+      if (n.tagName === 'BR') { if (!n.hasAttribute('data-end')) { flush(); text += '\n'; } return; }
+      if (n.classList.contains('ce')) {
+        flush(); const s = text.length, ch = n.textContent.replace(/[​﻿]/g, '');
+        if (ch && n.dataset.eid) { text += ch; ents.push({type: 'custom_emoji', offset: s, length: ch.length, custom_emoji_id: n.dataset.eid}); }
+        return;
+      }
+      const k = bcKind(n);
+      if (k === 'block') { open(); walk(n); after = true; return; }
+      const blockish = k === 'pre' || k === 'blockquote' || k === 'expandable_blockquote';
+      if (blockish) open(); else flush();
+      const s = text.length;
+      walk(n);
+      if (k && text.length > s) {
+        const e = {type: k, offset: s, length: text.length - s};
+        if (k === 'text_link') e.url = n.getAttribute('href') || '';
+        if (k === 'pre' && n.dataset.lang) e.language = n.dataset.lang;
+        ents.push(e);
+      }
+      if (blockish) after = true;
+    });
+  })(root);
+  ents.sort((a, b) => a.offset - b.offset || b.length - a.length);
+  const merged = [];            // соседние куски одного вида (например, после правок) сливаем: лимит — 100 штук
+  ents.forEach(e => {
+    const p = merged.find(m => m.type === e.type && m.offset + m.length === e.offset &&
+      ['bold', 'italic', 'underline', 'strikethrough', 'spoiler', 'text_link'].includes(e.type) && m.url === e.url);
+    if (p) p.length += e.length; else merged.push(e);
+  });
+  return {text, entities: merged};
+}
+
+/* ---- выделение */
+function bcRange() {
+  const s = getSelection();
+  if (s.rangeCount) { const r = s.getRangeAt(0); if (BC_ED.contains(r.commonAncestorContainer)) return r; }
+  return BC.last && BC_ED.contains(BC.last.commonAncestorContainer) ? BC.last.cloneRange() : null;
+}
+function bcSetRange(r) { BC_ED.focus({preventScroll: true}); const s = getSelection(); s.removeAllRanges(); s.addRange(r); BC.last = r.cloneRange(); }
+function bcEndRange() {
+  const r = document.createRange(), end = BC_ED.querySelector(':scope > br[data-end]');
+  if (end) r.setStartBefore(end); else r.selectNodeContents(BC_ED);
+  r.collapse(true); return r;
+}
+function bcHint(msg, kind) { const m = $('#bcMsg'); m.textContent = msg || ''; m.className = 'bc-msg' + (kind ? ' ' + kind : ''); }
+const bcClosest = (node, sel) => { const el = node.nodeType === 1 ? node : node.parentElement; const f = el && el.closest(sel); return f && f !== BC_ED && BC_ED.contains(f) ? f : null; };
+const bcTouchesSolid = r => [...BC_ED.querySelectorAll('code,pre')].some(el => r.intersectsNode(el));
+function bcUnwrap(el) {
+  const p = el.parentNode, blk = el.tagName === 'BLOCKQUOTE' || el.tagName === 'PRE';
+  if (blk) {                                  // блок занимал свои строки: после снятия они остаются отдельными строками
+    el.querySelectorAll('br[data-end]').forEach(b => b.remove());
+    p.normalize();                            // Chrome оставляет пустые текстовые узлы между кусками текста
+    const prev = el.previousSibling, next = el.nextSibling;
+    if (prev && !(prev.nodeType === 3 && /\n$/.test(prev.nodeValue)) && el.textContent) p.insertBefore(document.createTextNode('\n'), el);
+    if (next && !(next.nodeName === 'BR' && next.hasAttribute('data-end')) && !(next.nodeType === 3 && next.nodeValue.startsWith('\n')) && el.textContent) p.insertBefore(document.createTextNode('\n'), next);
+  }
+  while (el.firstChild) p.insertBefore(el.firstChild, el);
+  p.removeChild(el); p.normalize();
+}
+/* перевод строки сразу после нового блока лишний: блок и так заканчивает строку (иначе в редакторе появится пустая строка) */
+function bcAbsorb(el) { el.parentNode.normalize(); const n = el.nextSibling; if (n && n.nodeType === 3 && n.nodeValue.startsWith('\n')) n.nodeValue = n.nodeValue.slice(1); }
+function bcSelectContents(el) { const r = document.createRange(); r.selectNodeContents(el); bcSetRange(r); }
+
+/* DOM, который всегда заканчивается служебным <br>: без него браузер не показывает пустую последнюю строку */
+function bcNormalize() {
+  BC_ED.querySelectorAll('br[data-end]').forEach(b => { if (b.parentNode.lastChild !== b) b.remove(); });   // служебный <br> только в конце
+  BC_ED.querySelectorAll('blockquote,pre').forEach(b => { if (!b.textContent.replace(/[​﻿]/g, '')) b.remove(); });
+  [BC_ED, ...BC_ED.querySelectorAll('blockquote,pre')].forEach(c => {
+    const l = c.lastChild;
+    if (!(l && l.nodeName === 'BR' && l.hasAttribute('data-end'))) { const b = document.createElement('br'); b.setAttribute('data-end', ''); c.appendChild(b); }
+  });
+}
+function bcUpdate() {
+  bcNormalize();
+  const {text, entities} = bcSerialize(BC_ED), n = text.trimEnd().length, max = (BC.state && BC.state.max_text) || 4096, me = (BC.state && BC.state.max_entities) || 100;
+  BC_ED.classList.toggle('empty', !text.trim());
+  $('#bcLen').innerHTML = `Символов: <span class="${n > max ? 'bad' : ''}">${n} / ${max}</span>`;
+  $('#bcEnt').innerHTML = `Форматирований: <span class="${entities.length > me ? 'bad' : ''}">${entities.length} / ${me}</span>`;
+  bcTools();
+  return {text, entities};
+}
+function bcTools() {
+  const r = bcRange(); let st = {};
+  if (r) {
+    try { st = {bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'),
+      underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough')}; } catch (e) {}
+    const c = r.commonAncestorContainer;
+    st.spoiler = !!bcClosest(c, '.sp'); st.code = !!bcClosest(c, 'code'); st.pre = !!bcClosest(c, 'pre');
+    const q = bcClosest(c, 'blockquote'); st.quote = !!q && !q.hasAttribute('data-x'); st.xquote = !!q && q.hasAttribute('data-x');
+    st.link = !!bcClosest(c, 'a');
+  }
+  document.querySelectorAll('#bcTools [data-c]').forEach(b => b.classList.toggle('on', !!st[b.dataset.c]));
+}
+
+/* код и цитаты: Telegram не даёт совмещать код с другим форматированием — вынимаем элемент из b/i/u/s/спойлера/ссылки */
+function bcHoist(el) {
+  let p = el.parentNode;
+  while (p !== BC_ED && p.nodeType === 1 && p.matches(BC_INLINE)) {
+    const tail = p.cloneNode(false);
+    while (el.nextSibling) tail.appendChild(el.nextSibling);
+    p.parentNode.insertBefore(el, p.nextSibling);
+    if (tail.childNodes.length) p.parentNode.insertBefore(tail, el.nextSibling);
+    if (!p.childNodes.length) p.remove();
+    p = el.parentNode;
+  }
+}
+function bcPlain(frag) { const d = document.createElement('div'); d.appendChild(frag); return bcSerialize(d).text; }
+function bcSel(sel) {                          // выделение + уже существующий элемент нужного вида (повторный клик снимает формат)
+  const r = bcRange();
+  const ex = r && sel ? bcClosest(r.commonAncestorContainer, sel) : null;
+  if (!r || (!ex && r.collapsed)) { bcHint('Сначала выделите текст.', 'warn'); return null; }
+  return {r, ex};
+}
+function bcClean(frag) { frag.querySelectorAll('br[data-end]').forEach(b => b.remove()); return frag; }
+
+function bcFormat(cmd) {                       // жирный, курсив, подчёркнутый, зачёркнутый
+  const r = bcRange() || bcEndRange();
+  if (bcTouchesSolid(r)) return bcHint('В моноширинном тексте и блоке кода другое форматирование не работает.', 'warn');
+  bcSetRange(r);
+  try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
+  document.execCommand(cmd);
+  bcUpdate();
+}
+function bcWrapInline(sel, make, plain) {      // спойлер, моно, ссылка
+  const o = bcSel(sel); if (!o) return;
+  const {r, ex} = o;
+  if (ex) { bcUnwrap(ex); return bcUpdate(); }
+  if (r.cloneContents().querySelector('blockquote,pre')) return bcHint('Выделение захватывает цитату или блок кода: выделите текст внутри одной строки или абзаца.', 'warn');
+  if (plain ? bcClosest(r.commonAncestorContainer, 'pre') : bcTouchesSolid(r)) return bcHint('В моноширинном тексте и блоке кода другое форматирование не работает.', 'warn');
+  const el = make(); if (!el) return;
+  const frag = bcClean(r.extractContents());
+  frag.querySelectorAll(sel).forEach(bcUnwrap);
+  if (plain) el.textContent = bcPlain(frag); else el.appendChild(frag);
+  r.insertNode(el);
+  if (plain) bcHoist(el);
+  bcSelectContents(el); bcUpdate();
+}
+function bcWrapBlock(kind) {                   // цитата, сворачиваемая цитата, блок кода
+  const o = bcSel(kind === 'pre' ? 'pre' : 'blockquote'); if (!o) return;
+  const {r, ex} = o;
+  if (ex) {
+    if (kind === 'xquote' && !ex.hasAttribute('data-x')) ex.setAttribute('data-x', '');
+    else if (kind === 'quote' && ex.hasAttribute('data-x')) ex.removeAttribute('data-x');
+    else bcUnwrap(ex);
+    return bcUpdate();
+  }
+  if (kind === 'pre' && bcClosest(r.commonAncestorContainer, 'code')) return bcHint('Сначала уберите моноширинный формат с этого фрагмента.', 'warn');
+  let lang = '';
+  if (kind === 'pre') {
+    lang = (prompt('Язык подсветки (необязательно), например python или js:', '') || '').trim();
+    if (lang && !BC_LANG.test(lang)) { bcHint('Язык «' + lang.slice(0, 30) + '» не подходит: только латиница, цифры и + # . _ -', 'warn'); lang = ''; }
+  }
+  const el = document.createElement(kind === 'pre' ? 'pre' : 'blockquote');
+  if (kind === 'xquote') el.setAttribute('data-x', '');
+  if (lang) el.dataset.lang = lang;
+  const frag = bcClean(r.extractContents());
+  if (kind === 'pre') el.textContent = bcPlain(frag);
+  else { frag.querySelectorAll('blockquote').forEach(bcUnwrap); el.appendChild(frag); }
+  r.insertNode(el);
+  if (kind === 'pre') bcHoist(el);
+  bcAbsorb(el);
+  bcSelectContents(el); bcUpdate();
+}
+function bcLink() {
+  const o = bcSel('a'); if (!o) return;
+  const {r, ex} = o;
+  let url = prompt('Адрес ссылки (оставьте пустым, чтобы убрать ссылку):', ex ? ex.getAttribute('href') : 'https://');
+  if (url === null) return;
+  url = url.trim();
+  if (!url || url === 'https://') { if (ex) { bcUnwrap(ex); bcUpdate(); } return; }
+  if (/^@[A-Za-z0-9_]{3,}$/.test(url)) url = 'https://t.me/' + url.slice(1);
+  else if (!/^(https?:\/\/|tg:\/\/|mailto:)/i.test(url) && /^[^\s/]+\.[^\s/]+/.test(url)) url = 'https://' + url;
+  if (!/^(https?:\/\/|tg:\/\/|mailto:)\S+$/i.test(url)) return bcHint('Ссылка не подходит: нужен адрес вида https://…', 'warn');
+  if (ex) { ex.setAttribute('href', url); return bcUpdate(); }
+  bcSetRange(r);
+  bcWrapInline('a', () => { const a = document.createElement('a'); a.setAttribute('href', url); return a; }, false);
+}
+function bcClear() {
+  const r = bcRange();
+  if (!r || r.collapsed) return bcHint('Сначала выделите текст.', 'warn');
+  bcSetRange(r);
+  document.execCommand('removeFormat');
+  BC_ED.querySelectorAll('code,pre,.sp,a,blockquote').forEach(el => { if (r.intersectsNode(el)) bcUnwrap(el); });
+  bcUpdate();
+}
+const BC_CMD = {
+  bold: () => bcFormat('bold'), italic: () => bcFormat('italic'), underline: () => bcFormat('underline'), strikeThrough: () => bcFormat('strikeThrough'),
+  spoiler: () => bcWrapInline('.sp', () => { const s = document.createElement('span'); s.className = 'sp'; return s; }, false),
+  code: () => bcWrapInline('code', () => document.createElement('code'), true),
+  pre: () => bcWrapBlock('pre'), quote: () => bcWrapBlock('quote'), xquote: () => bcWrapBlock('xquote'),
+  link: bcLink, clear: bcClear,
+};
+$('#bcTools').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });   // не терять выделение
+$('#bcTools').addEventListener('click', e => {
+  const b = e.target.closest('[data-c]'); if (!b) return;
+  bcHint(''); BC_CMD[b.dataset.c]();
+});
+
+/* ---- ввод: Enter, вставка */
+function bcInsertText(str) {
+  const r = bcRange() || bcEndRange(); r.deleteContents();
+  const t = document.createTextNode(str); r.insertNode(t);
+  r.setStartAfter(t); r.collapse(true); bcSetRange(r);
+}
+function bcNewline() {
+  const r = bcRange() || bcEndRange(); r.deleteContents();
+  const blk = bcClosest(r.startContainer, 'blockquote,pre');
+  if (blk) {
+    const pre = document.createRange(); pre.selectNodeContents(blk); pre.setEnd(r.startContainer, r.startOffset);
+    const post = document.createRange(); post.selectNodeContents(blk); post.setStart(r.startContainer, r.startOffset);
+    if (post.toString() === '' && blk.textContent.endsWith('\n')) {           // Enter на пустой строке в конце блока — выйти из него
+      const w = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT); let last = null; while (w.nextNode()) last = w.currentNode;
+      if (last) last.nodeValue = last.nodeValue.replace(/\n$/, '');
+      const o = document.createRange(); o.setStartAfter(blk); o.collapse(true); bcSetRange(o); return;
+    }
+    if (pre.toString() === '') {                                              // Enter в самом начале блока — пустая строка перед ним
+      const p = blk.previousSibling, ends = !p || (p.nodeType === 3 && p.nodeValue.endsWith('\n'));
+      blk.parentNode.insertBefore(document.createTextNode(ends ? '\n' : '\n\n'), blk); return;
+    }
+  }
+  bcSetRange(r); bcInsertText('\n');
+}
+BC_ED.addEventListener('beforeinput', e => {
+  if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') { e.preventDefault(); bcNewline(); bcUpdate(); }
+});
+BC_ED.addEventListener('paste', e => {          // только простой текст: чужая разметка в рассылку не попадает
+  e.preventDefault();
+  let t = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+  t = t.replace(/\r\n?/g, '\n'); if (t) { bcInsertText(t); bcUpdate(); }
+});
+BC_ED.addEventListener('drop', e => e.preventDefault());
+BC_ED.addEventListener('input', bcUpdate);
+document.addEventListener('selectionchange', () => {
+  const s = getSelection();
+  if (s.rangeCount && BC_ED.contains(s.getRangeAt(0).commonAncestorContainer)) { BC.last = s.getRangeAt(0).cloneRange(); bcTools(); }
+});
+
+/* ---- премиум-эмодзи */
+function bcInsertEmoji(id, ch) {
+  const r = bcRange() || bcEndRange();
+  if (bcTouchesSolid(r)) { bcHint('В моноширинном тексте и блоке кода премиум-эмодзи не работают.', 'warn'); return false; }
+  r.deleteContents();
+  const s = document.createElement('span');
+  s.className = 'ce'; s.contentEditable = 'false'; s.dataset.eid = id; s.title = 'Премиум-эмодзи ' + id; s.textContent = ch;
+  r.insertNode(s); r.setStartAfter(s); r.collapse(true); bcSetRange(r);
+  return true;
+}
+$('#bcEmoAdd').onclick = async () => {
+  const ids = [...new Set($('#bcEmoIds').value.split(/[\s,;]+/).filter(Boolean))];
+  if (!ids.length) return bcHint('Введите ID премиум-эмодзи.', 'warn');
+  if (ids.some(i => !/^\d{1,32}$/.test(i))) return bcHint('ID премиум-эмодзи состоит только из цифр.', 'warn');
+  bcHint('Проверяю в Telegram…'); $('#bcEmoAdd').disabled = true;
+  const keep = bcRange();
+  const r = await api('broadcast/emoji', {ids}); $('#bcEmoAdd').disabled = false;
+  if (!r.ok) return bcHint(r.data.error || 'Не удалось проверить эмодзи.', 'err');
+  if (keep) bcSetRange(keep);
+  let n = 0; ids.forEach(i => { if (r.data.emoji[i] && bcInsertEmoji(i, r.data.emoji[i])) n++; });
+  bcUpdate();
+  if (r.data.missing.length) bcHint('Не найдены в Telegram: ' + r.data.missing.join(', ') + (n ? '. Остальные вставлены.' : ''), 'warn');
+  else { bcHint(''); $('#bcEmoIds').value = ''; }
+};
+$('#bcPackLoad').onclick = async () => {
+  const name = $('#bcPackName').value.trim();
+  if (!name) return bcHint('Вставьте ссылку на набор эмодзи.', 'warn');
+  bcHint('Загружаю набор…'); $('#bcPackLoad').disabled = true;
+  const r = await api('broadcast/pack', {name}); $('#bcPackLoad').disabled = false;
+  const box = $('#bcPack');
+  if (!r.ok) { box.hidden = true; return bcHint(r.data.error || 'Не удалось загрузить набор.', 'err'); }
+  bcHint('');
+  box.innerHTML = r.data.emoji.map(e => `<button type="button" data-eid="${esc(e.id)}" title="${esc(e.id)}">${esc(e.emoji)}</button>`).join('');
+  box.hidden = false;
+  try { localStorage.setItem('bcPack', name); } catch (e) {}
+};
+$('#bcPack').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+$('#bcPack').addEventListener('click', e => {
+  const b = e.target.closest('[data-eid]'); if (!b) return;
+  if (bcInsertEmoji(b.dataset.eid, b.textContent)) { bcHint(''); bcUpdate(); }
+});
+
+/* ---- отправка, прогресс, история */
+const bcPost = () => { const {text, entities} = bcUpdate(); return {text, entities, silent: $('#bcSilent').checked, no_preview: $('#bcNoPrev').checked}; };
+
+function bcProgress(p) {
+  const box = $('#bcProg');
+  if (!p) { box.hidden = true; return; }
+  const pct = p.total ? Math.min(100, Math.floor(p.done * 100 / p.total)) : 0;
+  box.hidden = false; box.classList.toggle('fail', p.status === 'aborted');
+  box.innerHTML = `<h3>Рассылка №${p.id}: ${BC_STATUS[p.status] || esc(p.status)}</h3>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div>Обработано <b>${num(p.done)}</b> из ${num(p.total)} (${pct}%) · доставлено <b>${num(p.sent)}</b> · недоступны ${num(p.blocked)} · ошибок ${num(p.failed)}${p.plain ? ` · без премиум-эмодзи ${num(p.plain)}` : ''}</div>
+    <div class="mute" style="margin-top:4px">Прошло ${dur(p.elapsed)}${p.eta != null ? ` · осталось ~${dur(p.eta)}` : ''}</div>
+    ${p.error ? `<div class="bc-msg err">${esc(p.error)}</div>` : ''}
+    ${p.errors && p.errors.length ? `<div class="mute" style="font-size:12px;margin-top:6px">Частые ошибки: ${p.errors.map(x => esc(x.text) + ' ×' + x.n).join('; ')}</div>` : ''}
+    ${p.status === 'running' ? '<div class="bc-row"><button type="button" class="btn del" id="bcCancel">Остановить рассылку</button></div>' : ''}`;
+}
+function bcBusy(on) {
+  BC.running = on;
+  $('#bcStart').disabled = on;
+  $('#bcStart').textContent = on ? 'Рассылка идёт…' : 'Отправить всем';
+}
+function bcWatch() {
+  if (BC.poll) return;
+  const tick = async () => {
+    const r = await api('broadcast/progress'); if (!r.ok) return;
+    bcProgress(r.data.progress);
+    if (!r.data.running) { clearInterval(BC.poll); BC.poll = null; bcBusy(false); loadBroadcast(); }
+  };
+  BC.poll = setInterval(tick, 1500); timers.push(BC.poll); tick();
+}
+function bcHistory(h) {
+  $('#bcHist').innerHTML = h.length ? '<table><tr><th>№</th><th>Когда</th><th>Статус</th><th>Доставлено</th><th>Недоступны</th><th>Ошибок</th><th>Текст</th></tr>' +
+    h.map(x => `<tr><td>${x.id}</td><td>${when(x.created_at)}</td><td>${BC_STATUS[x.status] || esc(x.status)}${x.error ? `<div class="mute" style="font-size:11px">${esc(x.error)}</div>` : ''}</td>
+      <td>${num(x.sent)} из ${num(x.total)}${x.plain ? `<div class="mute" style="font-size:11px">без премиум-эмодзи: ${num(x.plain)}</div>` : ''}</td><td>${num(x.blocked)}</td><td>${num(x.failed)}</td>
+      <td class="tx" title="${esc(x.text)}">${esc(x.text)}</td></tr>`).join('') + '</table>'
+    : '<div class="empty">Рассылок ещё не было</div>';
+}
+async function loadBroadcast() {
+  const r = await api('broadcast');
+  if (!r.ok) { $('#bcHist').innerHTML = `<div class="empty">${esc(r.data.error || 'Не удалось загрузить')}</div>`; return; }
+  const s = r.data; BC.state = s; BC.loaded = true;
+  const rate = s.rate || 20;
+  kpis($('#kBc'), [['Получателей', num(s.users), 'все, кто запускал бота'], ['Темп отправки', num(rate) + ' / с'], ['Ориентировочно', s.users ? dur(Math.ceil(s.users / rate)) : '—', 'на всю базу']]);
+  bcHistory(s.history);
+  if (!$('#bcTestTo').value && s.test_to) $('#bcTestTo').value = s.test_to;
+  if (!$('#bcPackName').value) { try { $('#bcPackName').value = localStorage.getItem('bcPack') || ''; } catch (e) {} }
+  if (s.progress) bcProgress(s.progress);
+  if (s.progress && s.progress.status === 'running') { bcBusy(true); bcWatch(); }
+  bcUpdate();
+}
+$('#bcTest').onclick = async () => {
+  const to = Number($('#bcTestTo').value.trim());
+  if (!Number.isInteger(to) || to <= 0) return bcHint('Укажите числовой Telegram ID получателя теста.', 'warn');
+  bcHint('Отправляю тест…'); $('#bcTest').disabled = true;
+  const r = await api('broadcast/test', {...bcPost(), chat_id: to}); $('#bcTest').disabled = false;
+  if (!r.ok) return bcHint(r.data.error || 'Не удалось отправить тест.', 'err');
+  if (r.data.emoji_fallback) bcHint('Тест доставлен, но Telegram не принял премиум-эмодзи от этого бота: получатели увидят обычные смайлики. Причина: ' + (r.data.reason || '—'), 'warn');
+  else bcHint('Тест доставлен. Проверьте, как выглядит сообщение в Telegram.', 'ok');
+};
+$('#bcStart').onclick = async () => {
+  if (BC.running) return;
+  const post = bcPost();
+  if (!post.text.trim()) return bcHint('Напишите текст рассылки.', 'warn');
+  const n = BC.state ? BC.state.users : 0;
+  if (!confirm(`Отправить это сообщение всем пользователям бота (${num(n)})?\n\nОтозвать уже доставленные сообщения нельзя. Если вы ещё не проверяли пост, сначала нажмите «Отправить тест себе».`)) return;
+  bcHint(''); $('#bcStart').disabled = true;
+  const r = await api('broadcast/start', post);
+  if (!r.ok) { $('#bcStart').disabled = false; return bcHint(r.data.error || 'Не удалось запустить рассылку.', 'err'); }
+  bcBusy(true); bcProgress(r.data); bcWatch();
+  bcHint('Рассылка запущена. Страницу можно не закрывать, но и закрытие её не остановит.', 'ok');
+};
+$('#bcProg').addEventListener('click', async e => {
+  if (!e.target.closest('#bcCancel')) return;
+  if (!confirm('Остановить рассылку? Уже отправленные сообщения останутся у пользователей.')) return;
+  e.target.disabled = true;
+  await api('broadcast/cancel', {});
+});
+$('#bcClear').onclick = () => {
+  if (BC_ED.textContent.trim() && !confirm('Очистить текст рассылки?')) return;
+  BC_ED.innerHTML = ''; bcHint(''); bcUpdate();
+};
+bcUpdate();
+
 /* ---------- вход ---------- */
-function lock() { timers.forEach(clearInterval); timers = []; document.body.classList.add('locked'); USERS_LOADED = false; $('#results').innerHTML = ''; $('#detail').innerHTML = ''; $('#rlist').innerHTML = ''; RV.items = []; $('#listwrap').hidden = false; $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
+function lock() { timers.forEach(clearInterval); timers = []; BC.poll = null; BC.loaded = false; document.body.classList.add('locked'); USERS_LOADED = false; $('#results').innerHTML = ''; $('#detail').innerHTML = ''; $('#rlist').innerHTML = ''; RV.items = []; $('#listwrap').hidden = false; $('#gate').hidden = false; $('#f1').hidden = false; $('#f2').hidden = true; skeleton(); }
 function unlock() {
   document.body.classList.remove('locked'); $('#gate').hidden = true;
   loadStats(); timers.push(setInterval(pollOnline, 10000), setInterval(loadStats, 60000));
@@ -704,9 +1190,10 @@ $('#f2').onsubmit = async e => {
 $('#logout').onclick = async () => { await api('logout', {}); lock(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['bot', 'site', 'users', 'catalog', 'reviews'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  ['bot', 'site', 'users', 'catalog', 'reviews', 'broadcast'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
   if (b.dataset.tab === 'catalog') loadCatalog();
   if (b.dataset.tab === 'reviews') { RV_LOADED = true; loadReviews(true); }
+  if (b.dataset.tab === 'broadcast') loadBroadcast();
   if (b.dataset.tab === 'users' && !USERS_LOADED) { USERS_LOADED = true; loadUsers(true); }
 });
 $('#go').onclick = search;
