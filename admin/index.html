@@ -260,7 +260,13 @@ a.ip{color:var(--blue);cursor:pointer;text-decoration:none}
           <label>Текст</label><textarea id="bnText" maxlength="200" placeholder="Коротко, что умеет сервис"></textarea>
           <label>Текст кнопки</label><input id="bnBtn" maxlength="40" autocomplete="off">
           <label>Ссылка кнопки (https://…)</label><input id="bnUrl" maxlength="500" placeholder="https://t.me/…" autocomplete="off" spellcheck="false">
-          <label><input type="checkbox" id="bnIcon" style="width:auto;margin-right:8px" checked>Иконка-планета</label>
+          <label>Своя картинка (PNG, JPG или WebP) — сама уменьшится до квадрата 128×128</label>
+          <div style="display:flex;align-items:center;gap:12px">
+            <img id="bnPrev" alt="" width="54" height="54" hidden style="border-radius:12px;object-fit:cover;border:1px solid var(--line)">
+            <input type="file" id="bnFile" accept="image/png,image/jpeg,image/webp,image/gif" style="width:auto">
+            <button type="button" class="btn sm" id="bnImgDel" hidden>Убрать</button>
+          </div>
+          <label><input type="checkbox" id="bnIcon" style="width:auto;margin-right:8px" checked>Показывать планету, если своей картинки нет</label>
         </div>
         <div class="bc-row" style="margin-top:14px;gap:10px;align-items:center">
           <button class="btn pri" id="bnSave">Сохранить</button>
@@ -1207,18 +1213,48 @@ $('#f2').onsubmit = async e => {
 };
 $('#logout').onclick = async () => { await api('logout', {}); lock(); };
 /* ---------- баннер сайта ---------- */
+let BN_IMG = '';
+function bnShowImg() {
+  $('#bnPrev').hidden = $('#bnImgDel').hidden = !BN_IMG;
+  if (BN_IMG) $('#bnPrev').src = BN_IMG;
+}
+// выбранный файл: обрезаем по центру до квадрата, ужимаем до 128×128 и кодируем в WebP (или PNG, если браузер не умеет)
+$('#bnFile').onchange = e => {
+  const f = e.target.files[0], msg = $('#bnMsg'); msg.style.color = '';
+  if (!f) return;
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(f.type)) { msg.style.color = '#e5736f'; msg.textContent = 'Нужен PNG, JPG или WebP'; return; }
+  if (f.size > 15 * 1024 * 1024) { msg.style.color = '#e5736f'; msg.textContent = 'Файл слишком большой (до 15 МБ)'; return; }
+  const rd = new FileReader();
+  rd.onload = () => {
+    const im = new Image();
+    im.onload = () => {
+      const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+      const side = Math.min(im.naturalWidth, im.naturalHeight);
+      c.getContext('2d').drawImage(im, (im.naturalWidth - side) / 2, (im.naturalHeight - side) / 2, side, side, 0, 0, S, S);
+      let out = c.toDataURL('image/webp', 0.85);
+      if (!out.startsWith('data:image/webp')) out = c.toDataURL('image/png');
+      if (out.length > 110000) { msg.style.color = '#e5736f'; msg.textContent = 'После сжатия всё равно тяжёлая, выберите проще'; return; }
+      BN_IMG = out; bnShowImg(); msg.textContent = 'Картинка готова — нажмите «Сохранить»';
+    };
+    im.onerror = () => { msg.style.color = '#e5736f'; msg.textContent = 'Не удалось прочитать картинку'; };
+    im.src = rd.result;
+  };
+  rd.readAsDataURL(f);
+};
+$('#bnImgDel').onclick = () => { BN_IMG = ''; $('#bnFile').value = ''; bnShowImg(); $('#bnMsg').textContent = 'Картинка убрана — нажмите «Сохранить»'; };
 async function loadBanner() {
   const r = await api('banner');
   if (!r.ok) { $('#bnMsg').textContent = 'Не удалось загрузить'; return; }
   const b = r.data;
   $('#bnOn').checked = !!b.enabled; $('#bnTitle').value = b.title || ''; $('#bnText').value = b.text || '';
   $('#bnBtn').value = b.button || ''; $('#bnUrl').value = b.url || ''; $('#bnIcon').checked = b.icon !== false;
+  BN_IMG = b.image || ''; $('#bnFile').value = ''; bnShowImg();
   $('#bnMsg').textContent = '';
 }
 $('#bnSave').onclick = async () => {
   const msg = $('#bnMsg'); msg.style.color = ''; msg.textContent = 'Сохраняю…';
   const r = await api('banner/save', {enabled: $('#bnOn').checked, title: $('#bnTitle').value, text: $('#bnText').value,
-    button: $('#bnBtn').value, url: $('#bnUrl').value, icon: $('#bnIcon').checked});
+    button: $('#bnBtn').value, url: $('#bnUrl').value, icon: $('#bnIcon').checked, image: BN_IMG});
   if (r.ok) { msg.textContent = r.data.enabled ? 'Сохранено — баннер включён' : 'Сохранено — баннер выключен'; }
   else { msg.style.color = '#e5736f'; msg.textContent = r.data.error || 'Ошибка'; }
 };
