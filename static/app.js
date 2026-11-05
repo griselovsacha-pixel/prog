@@ -76,7 +76,7 @@ function highlight(d) {
 function fit(nodes) {
   const W = svg.node().clientWidth - (panelOpen && innerWidth > 760 ? PANEL_W + (document.body.classList.contains('rev-open') && innerWidth > 1280 ? 400 : 0) : 0);
   const H = svg.node().clientHeight, TOP = innerWidth <= 700 ? 176 : 152, BOT = 50, PADX = 50;
-  const minX = d3.min(nodes, d => d.px - GAPL - d.w - 12);
+  const minX = d3.min(nodes, d => d.lx - 12);
   const maxX = d3.max(nodes, d => d.px + R + 12);
   const minY = d3.min(nodes, d => d.py) - 24, maxY = d3.max(nodes, d => d.py) + 24;
   const bw = maxX - minX, bh = maxY - minY;
@@ -97,7 +97,7 @@ function update(src) {
   const colX = [0];
   for (let k = 1; k < colW.length; k++) colX[k] = colX[k - 1] + R + LINK + 8 + GAPL + colW[k];
   // конец ветки — одна общая вертикаль на колонку (по самой длинной подписи), иначе точки гуляют по ширине текста
-  nodes.forEach(d => { d.py = d.x; d.px = colX[d.depth]; d.lx = d.px - GAPL - colW[d.depth] - 8; });
+  nodes.forEach(d => { d.py = d.x; d.px = colX[d.depth]; d.lx = d.px - GAPL - colW[d.depth] - 14; });
 
   const tr = (sel, delay) => first ? sel : sel.transition().duration(DUR).ease(EASE).delay(delay || 0);
   const at = d => `translate(${d.px},${d.py})`;
@@ -117,6 +117,8 @@ function update(src) {
   enter.append('text').attr('x', -GAPL).attr('dy', '0.35em').text(d => d.data.name);
 
   const all = enter.merge(node);
+  // текст начинается сразу у точки ветки (общая вертикаль колонки), кружок остаётся справа на своём месте
+  all.select('text').style('text-anchor', 'start').attr('x', d => d.lx - d.px + 9);
   all.classed('leaf', isLeaf).classed('open', d => !!d.children)
     .classed('sel', d => d === selNode).classed('pth', d => foundIds.has(d.id)).classed('tgt', d => d === foundNode)
     .classed('dead', isDeadNode);
