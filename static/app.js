@@ -96,7 +96,8 @@ function update(src) {
   nodes.forEach(d => { colW[d.depth] = Math.max(colW[d.depth] || 0, d.w); });
   const colX = [0];
   for (let k = 1; k < colW.length; k++) colX[k] = colX[k - 1] + R + LINK + 8 + GAPL + colW[k];
-  nodes.forEach(d => { d.py = d.x; d.px = colX[d.depth]; });
+  // конец ветки — одна общая вертикаль на колонку (по самой длинной подписи), иначе точки гуляют по ширине текста
+  nodes.forEach(d => { d.py = d.x; d.px = colX[d.depth]; d.lx = d.px - GAPL - colW[d.depth] - 8; });
 
   const tr = (sel, delay) => first ? sel : sel.transition().duration(DUR).ease(EASE).delay(delay || 0);
   const at = d => `translate(${d.px},${d.py})`;
@@ -126,7 +127,7 @@ function update(src) {
 
   // ---- links (кривая + точка на конце)
   const ex = d => d.source.px + R, ey = d => d.source.py;
-  const tx = d => d.target.px - GAPL - d.target.w - 8, ty = d => d.target.py;
+  const tx = d => d.target.lx, ty = d => d.target.py;
   const path = d => curve(ex(d), ey(d), tx(d), ty(d));
   const zx = first ? 0 : src.ox + R, zy = first ? 0 : src.oy;
 
