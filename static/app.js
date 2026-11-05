@@ -97,10 +97,11 @@ function update(src) {
   const colX = [0];
   for (let k = 1; k < colW.length; k++) colX[k] = colX[k - 1] + R + LINK + 8 + GAPL + colW[k];
   // конец ветки — одна общая вертикаль на колонку (по самой длинной подписи), иначе точки гуляют по ширине текста
-  nodes.forEach(d => { d.py = d.x; d.px = colX[d.depth]; d.lx = d.px - GAPL - colW[d.depth] - 14; });
+  // линии всех веток заканчиваются на одной вертикали колонки (lx), текст сразу за точкой, кружок вплотную к тексту (cx)
+  nodes.forEach(d => { d.py = d.x; d.px = colX[d.depth]; d.lx = d.px - GAPL - colW[d.depth] - 14; d.cx = d.px - (colW[d.depth] - d.w); });
 
   const tr = (sel, delay) => first ? sel : sel.transition().duration(DUR).ease(EASE).delay(delay || 0);
-  const at = d => `translate(${d.px},${d.py})`;
+  const at = d => `translate(${d.cx},${d.py})`;
 
   // ---- nodes
   const node = nodeG.selectAll('g.node').data(nodes, d => d.id);
@@ -118,17 +119,17 @@ function update(src) {
 
   const all = enter.merge(node);
   // текст начинается сразу у точки ветки (общая вертикаль колонки), кружок остаётся справа на своём месте
-  all.select('text').style('text-anchor', 'start').attr('x', d => d.lx - d.px + 9);
+  all.select('text').style('text-anchor', 'start').attr('x', d => d.lx - d.cx + 9);
   all.classed('leaf', isLeaf).classed('open', d => !!d.children)
     .classed('sel', d => d === selNode).classed('pth', d => foundIds.has(d.id)).classed('tgt', d => d === foundNode)
     .classed('dead', isDeadNode);
   tr(all, d => (entered.has(d.id) ? stagger(d) : 0)).attr('transform', at).attr('opacity', 1);
 
   node.exit().transition().duration(DUR).ease(EASE)
-    .attr('transform', `translate(${src.px},${src.py})`).attr('opacity', 0).remove();
+    .attr('transform', `translate(${src.cx},${src.py})`).attr('opacity', 0).remove();
 
   // ---- links (кривая + точка на конце)
-  const ex = d => d.source.px + R, ey = d => d.source.py;
+  const ex = d => d.source.cx + R, ey = d => d.source.py;
   const tx = d => d.target.lx, ty = d => d.target.py;
   const path = d => curve(ex(d), ey(d), tx(d), ty(d));
   const zx = first ? 0 : src.ox + R, zy = first ? 0 : src.oy;
@@ -145,13 +146,13 @@ function update(src) {
   tr(lkAll.select('path'), ldelay).attr('d', path);
   tr(lkAll.select('circle'), ldelay).attr('cx', tx).attr('cy', ty);
 
-  const sx = src.px + R, sy = src.py, gone = lk.exit();
+  const sx = src.cx + R, sy = src.py, gone = lk.exit();
   gone.select('path').transition().duration(DUR).ease(EASE).attr('d', curve(sx, sy, sx, sy));
   gone.select('circle').transition().duration(DUR).ease(EASE).attr('cx', sx).attr('cy', sy);
   gone.transition().duration(DUR).remove();
 
   fit(nodes);
-  nodes.forEach(d => { d.ox = d.px; d.oy = d.py; });
+  nodes.forEach(d => { d.ox = d.cx; d.oy = d.py; });
   first = false;
 }
 
