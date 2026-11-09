@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>Harledy Project</title>
+<link rel="stylesheet" href="tma.css?v=1">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <h1 id="ttl">Harledy Project</h1>
+    <label id="sbox">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <input id="q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100" placeholder="Поиск: инструмент, тег, категория" aria-label="Поиск по каталогу">
+      <button id="qx" type="button" aria-label="Очистить" hidden>&times;</button>
+    </label>
+  </header>
+  <main id="view" aria-live="polite"><p class="load">Загрузка…</p></main>
+  <nav id="tabs" hidden>
+    <button type="button" data-tab="cat" class="on">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Каталог</span></button>
+    <button type="button" data-tab="ai">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/></svg><span>ИИ</span></button>
+    <button type="button" data-tab="more">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg><span>Ещё</span></button>
+  </nav>
+</div>
+<div id="scrim"></div>
+<section id="sheet" class="sheet" aria-hidden="true"><div class="grab"><i></i></div><div class="sbody" id="sbody"></div></section>
+<section id="rsheet" class="sheet tall" aria-hidden="true"><div class="grab"><i></i></div><div class="sbody" id="rbody"></div></section>
+<div id="toast" role="status"></div>
+<script src="tma.js?v=1"></script>
+</body>
+</html>
