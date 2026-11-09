@@ -29,7 +29,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery, ChatJoinRequest, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions,
-    Message, MessageEntity,
+    MenuButtonWebApp, Message, MessageEntity, WebAppInfo,
 )
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import Path as ApiPath
@@ -47,6 +47,7 @@ import catalog as cat
 import monitor as mon
 import security as sec
 import seo
+import tma
 
 logging.basicConfig(level=logging.INFO)
 sec.install_log_masking()   # токены доступа (?k=…) и токен бота не попадают в логи
@@ -74,6 +75,10 @@ REQUIRED = [   # всё, на что надо быть подписанным: k
     {"key": "group", "title": GROUP_TITLE, "id": GROUP_ID, "link": GROUP_LINK},
 ]
 BASE = Path(__file__).parent
+# Telegram Mini App: адрес (/app/) и базовая ссылка для «поделиться» (t.me/бот/приложение). Без TMA_LINK берём
+# t.me/<бот> — это работает, если в BotFather выбрано Main Mini App; иначе задайте TMA_LINK=https://t.me/<бот>/<имя_приложения>
+TMA_LINK = os.environ.get("TMA_LINK", "").strip().rstrip("/")
+BOT_USERNAME = ""
 # Telegram ID владельцев: только им бот отвечает ID канала на пересланный пост
 ADMIN_TG_IDS = {int(x) for x in re.findall(r"\d+", os.environ.get("ADMIN_TG_IDS", ""))}
 
@@ -229,6 +234,7 @@ alter table events enable row level security;
 """
 
 pool: asyncpg.Pool | None = None
+tma_bot = None                                      # Bot для проверки подписок из мини-аппа; создаётся в lifespan
 broadcaster: "bcast.Broadcaster | None" = None     # рассылка из админки; создаётся в lifespan
 router = Router()
 
@@ -370,8 +376,12 @@ def menu_kb(link: str, icons: bool) -> InlineKeyboardMarkup:
         extra = {"icon_custom_emoji_id": icon} if icons else {}
         return InlineKeyboardButton(text=text, **kw, **extra)
 
+    rows = []
+    if SITE_URL:        # мини-апп внутри Telegram; обычный сайт остаётся второй кнопкой
+        rows.append([InlineKeyboardButton(text="Открыть мини-апп", web_app=WebAppInfo(url=f"{SITE_URL}/app/"))])
+    rows.append([InlineKeyboardButton(text="Открыть на сайте" if SITE_URL else "Открыть Harledy Project", url=link)])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Открыть Harledy Project", url=link)],
+        *rows,
         [btn("Добавить свой инструмент", bf.BTN["add"], callback_data="addtool")],
         [btn("Поддержать проект", bf.BTN["support"], callback_data="support")],
     ])
@@ -693,6 +703,8 @@ async def lifespan(app: FastAPI):
     alerts.notify("start", "Сервер запущен")
     global broadcaster
     broadcaster = make_broadcaster(bot)
+    global tma_bot
+    tma_bot = bot
     try:                                  # рассылка, которую прервал перезапуск сервера, помечаем в истории
         await broadcaster.store.interrupted()
     except Exception as e:
@@ -706,6 +718,11 @@ async def lifespan(app: FastAPI):
     try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
         await bot.delete_webhook(drop_pending_updates=True)
         await diagnose(bot)
+        global BOT_USERNAME
+        BOT_USERNAME = (await bot.get_me()).username or ""
+        if SITE_URL:      # кнопка «Каталог» слева от поля ввода во всех личных чатах с ботом
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+                text="Каталог", web_app=WebAppInfo(url=f"{SITE_URL}/app/")))
     except Exception as e:
         log.warning("Telegram недоступен при старте, продолжаем без проверки: %s", e)
     tasks = [
@@ -778,8 +795,20 @@ DB_LOOKUPS = sec.Limiter(300, 60)    # общий потолок поисков 
 NOSTORE = {"Cache-Control": "no-store"}
 
 
+_tma_tok = sec.Bounded(20000)        # initData -> (личный токен, годен до): заполняется только /api/tma/state при полном доступе
+TMA_PREFIX = "tma "
+
+
+def _tma_swap(k: str) -> str:
+    """Заголовок «tma <initData>» → личный токен пользователя, если он уже прошёл /api/tma/state; иначе пустая строка."""
+    hit = _tma_tok.get(k)
+    return hit[0] if hit and hit[1] > time.monotonic() else ""
+
+
 async def resolve_token(k: str, ip: str = "") -> tuple[int | None, bool]:
     """(tg_id, принято ли соглашение). tg_id = None — токен неверный."""
+    if k.startswith(TMA_PREFIX):          # мини-апп: сначала /api/tma/state (там проверка подписи и подписки)
+        k = _tma_swap(k)
     # неправильный формат или заведомо чужой токен — в базу не ходим; повторные попытки ведут к бану
     if not k or not TOKEN_RE.fullmatch(k):
         sec.BANS.strike(sec.rl_key(ip), "token", 10, 300)
@@ -813,7 +842,10 @@ async def uid_by_token(k: str, ip: str = "") -> int | None:
 
 def access_key(request: Request, fallback: str = "") -> str:
     """Токен берём из заголовка X-Access-Key (новый клиент) или из ?k= / тела запроса (старые ссылки)."""
-    return (request.headers.get("x-access-key") or fallback or "").strip()
+    k = (request.headers.get("x-access-key") or fallback or "").strip()
+    if k.startswith(TMA_PREFIX):          # дальше все лимиты и кэши работают по личному токену, как у обычного сайта
+        return _tma_swap(k) or k
+    return k
 
 
 # ---- файл со списком инструментов: только для первого переноса в базу и как запасной вариант
@@ -882,6 +914,7 @@ class AiMsg(BaseModel):
 
 
 class AiReq(BaseModel):
+    src: str = Field(default="", max_length=8)       # «tma» — вопрос из мини-аппа: ИИ видит каталог без скрытых веток
     q: str = Field(min_length=1, max_length=ai.MAX_QUESTION)
     history: list[AiMsg] = Field(default_factory=list, max_length=12)
 
@@ -899,7 +932,7 @@ async def ai_ask(request: Request, b: AiReq):
     if AI_SLOTS.locked():
         return JSONResponse({"error": "busy"}, status_code=503, headers={**NOSTORE, "Retry-After": "5"})
     async with AI_SLOTS:
-        res = await assistant.answer(b.q, b.history, tools_json())
+        res = await assistant.answer(b.q, b.history, tma_tools_body() if b.src == 'tma' else tools_json())
     await site_alert("ai", "Вопрос ИИ", uid, f"{b.q[:300]}\nмодель: {res['model'] or 'локальный ответ'}", ip)
     if not res["answer"]:
         return JSONResponse({"error": "empty"}, status_code=400, headers=NOSTORE)
@@ -915,6 +948,7 @@ class Track(BaseModel):
     sid: str = Field(max_length=64)
     ev: str = Field(max_length=20)
     tool: str | None = Field(default=None, max_length=200)
+    src: str = Field(default="", max_length=8)         # «tma» — событие из мини-аппа
 
 
 @app.post("/api/track")
@@ -939,7 +973,7 @@ async def track(request: Request, b: Track):
         if not NEW_SID.hit(key):                          # и плодить сессии тоже
             return JSONResponse({"ok": False}, status_code=429, headers={"Retry-After": "300"})
         _sid_owner.put(b.sid, uid)
-    ua = request.headers.get("user-agent", "")[:300]
+    ua = ("[tma] " if b.src == "tma" else "") + request.headers.get("user-agent", "")[:290]
     await pool.execute(
         """insert into sessions(id, tg_id, ip, user_agent) values($1, $2, $3, $4)
            on conflict (id) do update set last_seen = now() where sessions.tg_id = excluded.tg_id""",
@@ -1992,6 +2026,106 @@ async def admin_review_ban(request: Request):
     alerts.notify("admin", "Отзывы: запрещено автору" if banned else "Отзывы: разрешено автору",
                   f"ID {uid}" + (f"\nудалено отзывов: {purged}" if purged else ""))
     return JSONResponse({"ok": True, "purged": purged}, headers=NOSTORE)
+
+
+# ====================== Telegram Mini App ======================
+def tma_tools_body() -> bytes:
+    """Каталог без скрытых веток, в виде {"name":…,"children":[…]} — тот же формат, что ждёт ИИ."""
+    raw = tma.catalog(tools_json())
+    return json.dumps(json.loads(raw)["tree"], ensure_ascii=False).encode() if raw else b"{}"
+
+
+class TmaUser:
+    """Минимум полей Telegram-пользователя для ensure_user() и алертов."""
+    def __init__(self, d: dict):
+        self.id = d["id"]
+        self.username = d.get("username")
+        self.full_name = " ".join(x for x in (d.get("first_name"), d.get("last_name")) if x) or str(d["id"])
+
+
+def tma_init(request: Request) -> tuple[str, dict | None]:
+    """(строка initData из X-Access-Key, результат проверки подписи или None)."""
+    raw = (request.headers.get("x-access-key") or "").strip()
+    if not raw.startswith(TMA_PREFIX):
+        return "", None
+    init = raw[len(TMA_PREFIX):]
+    return raw, tma.validate_init(init, BOT_TOKEN)
+
+
+async def tma_state_payload(raw: str, auth: dict) -> dict:
+    """Соглашение + подписки. Если всё в порядке, выдаём клиенту доступ ко всему API (личный токен подставляется на сервере)."""
+    u = TmaUser(auth["user"])
+    token = await ensure_user(u)
+    terms = await has_terms(u.id)
+    bot = tma_bot
+    subs = []
+    if terms:
+        res = await asyncio.gather(*(_has_one(bot, u.id, r) for r in REQUIRED))
+        subs = [{"key": r["key"], "title": r["title"], "link": r["link"], "ok": bool(ok)} for r, ok in zip(REQUIRED, res)]
+    else:
+        subs = [{"key": r["key"], "title": r["title"], "link": r["link"], "ok": False} for r in REQUIRED]
+    ok = terms and all(x["ok"] for x in subs)
+    if ok:
+        left = min(6 * 3600, max(60, auth["auth_date"] + tma.MAX_AGE - time.time()))
+        _tma_tok.put(raw, (token, time.monotonic() + left))
+    base = TMA_LINK or (f"https://t.me/{BOT_USERNAME}" if BOT_USERNAME else "")
+    return {"ok": ok, "terms": terms, "subs": subs, "bot": BOT_USERNAME, "share": base,
+            "start": auth.get("start_param", ""), "channel": CHANNEL_LINK, "dev": DEV_LINK,
+            "site": SITE_URL, "name": u.full_name}
+
+
+TMA_STATE = sec.Limiter(30, 60)       # на одного пользователя: проверки состояния (каждая может ходить в Telegram)
+
+
+@app.get("/api/tma/state")
+async def tma_state(request: Request):
+    raw, auth = tma_init(request)
+    if not auth:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TMA_STATE.hit(str(auth["user"]["id"])):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "20"})
+    return JSONResponse(await tma_state_payload(raw, auth), headers=NOSTORE)
+
+
+@app.post("/api/tma/terms")
+async def tma_terms(request: Request):
+    """Принятие соглашения кнопкой в мини-аппе (то же, что кнопка «Я ознакомился» в боте)."""
+    raw, auth = tma_init(request)
+    if not auth:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TMA_STATE.hit(str(auth["user"]["id"])):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "20"})
+    u = TmaUser(auth["user"])
+    await ensure_user(u)
+    await pool.execute(
+        "update users set terms_accepted_at = now() where tg_id = $1 and terms_accepted_at is null", u.id)
+    _terms_ok.put(u.id, True)
+    alerts.notify("terms", "Принял соглашение (мини-апп)", alerts.who(u))
+    return JSONResponse(await tma_state_payload(raw, auth), headers=NOSTORE)
+
+
+@app.get("/api/tma/tools")
+async def tma_tools(request: Request):
+    ip = client_ip(request)
+    key = access_key(request)
+    uid = await uid_by_token(key, ip)
+    if not uid:
+        return JSONResponse({"error": "forbidden"}, status_code=403, headers=NOSTORE)
+    if not TOK_TOOLS.hit(key):
+        return JSONResponse({"error": "rate"}, status_code=429, headers={**NOSTORE, "Retry-After": "30"})
+    now = time.monotonic()
+    if now - _last_visit.get(uid, -1e9) > 60:
+        _last_visit.put(uid, now)
+        try:
+            ua = "[tma] " + request.headers.get("user-agent", "")[:290]
+            await pool.execute("insert into visits(tg_id, ip, user_agent) values($1, $2, $3)", uid, ip, ua)
+            await site_alert("site", "Заход в мини-апп", uid, "", ip)
+        except Exception as e:
+            log.warning("visit insert failed: %s", e)
+    body = tma.catalog(tools_json())
+    if body is None:
+        return JSONResponse({"error": "unavailable"}, status_code=503, headers=NOSTORE)
+    return Response(body, media_type="application/json", headers=NOSTORE)
 
 
 # ====================== страницы и поддомены ======================
