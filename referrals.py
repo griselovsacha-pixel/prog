@@ -19,7 +19,11 @@ import re
 log = logging.getLogger("harledy.refs")
 
 REWARD = 1                      # звёзд за одного засчитанного реферала
-MIN_WITHDRAW = 15               # вывод доступен от этой суммы
+# подарки для вывода (как в меню Telegram): (смайлик, цена в звёздах), по два в ряду, последний — один
+GIFTS = [("🧸", 15), ("💝", 15), ("🌹", 25), ("🎁", 25), ("🍾", 50), ("💐", 50),
+         ("🚀", 50), ("🎂", 50), ("🏆", 100), ("💍", 100), ("💎", 100)]
+MIN_WITHDRAW = min(a for _, a in GIFTS)     # вывод доступен от самого дешёвого подарка
+MAX_PENDING = 3                 # необработанных заявок на вывод от одного человека
 QUALIFY = ("bot", "eternal")    # события /api/track, после которых реферал засчитывается («перешёл в инструмент»)
 SEP = " › "                     # разделитель пути инструмента, как в catalog.py и на сайте
 START_RE = re.compile(r"ref_(\d{1,15})")
@@ -35,6 +39,19 @@ create table if not exists referrals(
 );
 create index if not exists referrals_referrer_idx on referrals(referrer_id, status);
 alter table referrals enable row level security;
+create table if not exists withdrawals(
+    id bigserial primary key,
+    tg_id bigint not null,
+    gift text not null,
+    amount integer not null,
+    balance_before integer not null,
+    invited integer not null default 0,
+    status text not null default 'pending',
+    created_at timestamptz not null default now(),
+    resolved_at timestamptz
+);
+create index if not exists withdrawals_user_idx on withdrawals(tg_id, status);
+alter table withdrawals enable row level security;
 """
 
 # ---- эмодзи в тексте сообщений: ключ → (ID, запасной смайлик)
@@ -243,7 +260,7 @@ def ref_text(link: str | None, balance: int, count: int) -> str:
     return (f"{em('ref_head')} <b>Реферальная система</b>\n\n"
             f"Приглашайте друзей по своей ссылке и получайте звёзды. За каждого приведённого вами реферала мы платим "
             f"<b>{REWARD} {em('star')}</b>: 1 реферал = 1 звезда.\n"
-            f"Вывод доступен от <b>{MIN_WITHDRAW} {em('star')}</b>.\n\n"
+            f"Вывод доступен от <b>{MIN_WITHDRAW} {em('star')}</b>, звёзды выдаются подарком на ваш выбор.\n\n"
             "<b>Важно!</b> Реферал засчитывается только после того, как он откроет мини-апп или сайт и перейдёт в какой-либо "
             "инструмент. Так мы защищаемся от ботов. За твинки (дополнительные аккаунты одного человека) мы не платим.\n\n"
             f"{mine}\n\n"
@@ -254,3 +271,73 @@ def ref_text(link: str | None, balance: int, count: int) -> str:
 async def balance_and_count(pool, uid: int) -> tuple[int, int]:
     d = await profile_data(pool, uid)
     return (d["balance"], d["refs"]) if d else (0, 0)
+
+
+# ---------------------------------------------------------------- вывод звёзд подарком
+def picker_text(balance: int) -> str:
+    return (f"{em('star')} <b>Выберите подарок</b>, которым хотите получить звёзды.\n\n"
+            f"Ваш баланс: <b>{balance}</b> {em('star')}")
+
+
+def confirm_text(idx: int, balance: int) -> str:
+    gift, amount = GIFTS[idx]
+    return (f"{em('star')} <b>Вы точно хотите вывести {amount} {em('star')} подарком {gift}?</b>\n\n"
+            f"Ваш баланс: {balance} {em('star')}. После подтверждения сумма спишется с баланса, "
+            "а заявка уйдёт на проверку.")
+
+
+def low_text(balance: int, need: int) -> str:
+    """Короткий текст для всплывающего окна (кастом-эмодзи там не работают, поэтому обычная звезда)."""
+    return f"Ваш баланс: {balance} ⭐. Для этого подарка нужно {need} ⭐."
+
+
+def admin_text(w: dict, u: dict) -> str:
+    """Заявка админу: юзер, ID, баланс, сколько пригласил, сумма. Эмодзи как у заявки «добавить инструмент»."""
+    import bot_features as bf      # там же лежат эмодзи заявок; импорт здесь, чтобы логика проверялась без aiogram
+    who = f'<a href="tg://user?id={w["tg_id"]}">{e(u.get("full_name")) or w["tg_id"]}</a>' + (
+        f" (@{e(u['username'])})" if u.get("username") else "")
+    return (f"{bf.em('confirm')} <b>Новая заявка: вывод звёзд</b>\n\n"
+            f"{bf.em('f_name')} Юзер: {who}\n"
+            f"{bf.em('f_kind')} ID: <code>{w['tg_id']}</code>\n"
+            f"{em('balance')} Баланс: <b>{w['balance_before']}</b> {em('star')}\n"
+            f"{em('refs')} Пригласил: <b>{w['invited']}</b>\n"
+            f"{em('star')} Сумма: <b>{w['amount']}</b> {em('star')} подарком {w['gift']}")
+
+
+SENT_TEXT = "Заявка отправлена. Как только её проверят, вам придёт уведомление."
+APPROVED_TEXT = "Ваша заявка одобрена, подарок отправлен.\nБлагодарим за сотрудничество!"
+REJECTED_TEXT = "К сожалению, ваша заявка отклонена. Звёзды возвращены на ваш баланс."
+
+
+async def create_withdrawal(pool, uid: int, idx: int) -> tuple[str, dict | None]:
+    """Заявка на вывод подарка №idx. Сумма сразу списывается с баланса (чтобы нельзя было подать две заявки на одни звёзды)
+    и возвращается, если заявку отклонят. Результат: ('ok'|'low'|'many'|'bad', данные)."""
+    if not 0 <= idx < len(GIFTS):
+        return "bad", None
+    gift, amount = GIFTS[idx]
+    async with pool.acquire() as c:
+        async with c.transaction():
+            if (await c.fetchval("select count(*) from withdrawals where tg_id = $1 and status = 'pending'", uid) or 0) >= MAX_PENDING:
+                return "many", None
+            left = await c.fetchval(
+                "update users set balance = balance - $2 where tg_id = $1 and balance >= $2 returning balance", uid, amount)
+            if left is None:
+                return "low", {"balance": await c.fetchval("select balance from users where tg_id = $1", uid) or 0, "need": amount}
+            invited = await c.fetchval("select count(*) from referrals where referrer_id = $1 and status = 'paid'", uid) or 0
+            wid = await c.fetchval(
+                "insert into withdrawals(tg_id, gift, amount, balance_before, invited) values($1, $2, $3, $4, $5) returning id",
+                uid, gift, amount, left + amount, invited)
+    return "ok", {"id": wid, "tg_id": uid, "gift": gift, "amount": amount, "balance_before": left + amount, "invited": invited}
+
+
+async def resolve_withdrawal(pool, wid: int, status: str) -> dict | None:
+    """Закрывает заявку один раз: 'paid' (выплачено), 'rejected' (отклонена) или 'failed' (не удалось отправить админу).
+    Для всего, кроме paid, звёзды возвращаются на баланс. None — заявка уже обработана или не найдена."""
+    async with pool.acquire() as c:
+        async with c.transaction():
+            row = await c.fetchrow(
+                "update withdrawals set status = $2, resolved_at = now() where id = $1 and status = 'pending' "
+                "returning tg_id, gift, amount", wid, status)
+            if row and status != "paid":
+                await c.execute("update users set balance = balance + $2 where tg_id = $1", row["tg_id"], row["amount"])
+    return dict(row) if row else None
