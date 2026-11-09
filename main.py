@@ -25,7 +25,7 @@ from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery, ChatJoinRequest, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions,
@@ -42,9 +42,11 @@ import ai_assistant as ai
 import alerts
 import banner as bnr
 import bot_features as bf
+import bot_profile as bp
 import broadcast as bcast
 import catalog as cat
 import monitor as mon
+import referrals as refs
 import security as sec
 import seo
 import tma
@@ -79,6 +81,7 @@ BASE = Path(__file__).parent
 # t.me/<бот> — это работает, если в BotFather выбрано Main Mini App; иначе задайте TMA_LINK=https://t.me/<бот>/<имя_приложения>
 TMA_LINK = os.environ.get("TMA_LINK", "").strip().rstrip("/")
 BOT_USERNAME = ""
+SUPPORT_LINK = os.environ.get("SUPPORT_LINK", "https://t.me/HarledyProject").strip()   # кнопка «Поддержка» в главном меню
 # Telegram ID владельцев: только им бот отвечает ID канала на пересланный пост
 ADMIN_TG_IDS = {int(x) for x in re.findall(r"\d+", os.environ.get("ADMIN_TG_IDS", ""))}
 
@@ -372,18 +375,20 @@ async def send_gate(bot: Bot, chat_id: int):
 
 
 def menu_kb(link: str, icons: bool) -> InlineKeyboardMarkup:
-    def btn(text, icon, **kw):
-        extra = {"icon_custom_emoji_id": icon} if icons else {}
-        return InlineKeyboardButton(text=text, **kw, **extra)
+    def b(text, key, fb, **kw):
+        return bf.btn(text, key, fb, icons, **kw)
 
-    rows = []
-    if SITE_URL:        # мини-апп внутри Telegram; обычный сайт остаётся второй кнопкой
-        rows.append([InlineKeyboardButton(text="Открыть мини-апп", web_app=WebAppInfo(url=f"{SITE_URL}/app/"))])
-    rows.append([InlineKeyboardButton(text="Открыть на сайте" if SITE_URL else "Открыть Harledy Project", url=link)])
+    first = []
+    if SITE_URL:        # мини-апп внутри Telegram; обычный сайт — рядом, во втором столбце
+        first.append(InlineKeyboardButton(text="Открыть мини-апп", web_app=WebAppInfo(url=f"{SITE_URL}/app/")))
+    first.append(InlineKeyboardButton(text="Открыть сайт" if SITE_URL else "Открыть Harledy Project", url=link))
     return InlineKeyboardMarkup(inline_keyboard=[
-        *rows,
-        [btn("Добавить свой инструмент", bf.BTN["add"], callback_data="addtool")],
-        [btn("Поддержать проект", bf.BTN["support"], callback_data="support")],
+        first,
+        [b("Профиль", "profile", "👤", callback_data="profile"),
+         b("Реферальная система", "ref", "🤝", callback_data="ref")],
+        [b("Поддержать проект", "support", "💖", callback_data="support"),
+         b("Поддержка", "help", "🛟", url=SUPPORT_LINK)],
+        [b("Добавить свой инструмент", "add", "➕", callback_data="addtool")],
     ])
 
 
@@ -458,9 +463,12 @@ async def proceed(bot: Bot, u, chat_id: int):
 
 
 @router.message(CommandStart())
-async def on_start(m: Message, state: FSMContext):
+async def on_start(m: Message, state: FSMContext, command: CommandObject):
     await state.clear()                       # /start сбрасывает незаконченный диалог «Добавить инструмент»
+    existed = bool(await pool.fetchval("select 1 from users where tg_id = $1", m.from_user.id))
     await ensure_user(m.from_user)  # ссылка создаётся сразу, при первом контакте
+    # приглашение по реферальной ссылке (t.me/бот?start=ref_<id>) учитывается только у тех, кто в боте впервые
+    await refs.register(pool, bp.sender(m.bot), m.from_user, command.args, existed)
     terms = await has_terms(m.from_user.id)
     alerts.notify("user", "/start", alerts.who(m.from_user) + f"\nсоглашение: {'принято' if terms else 'нет'}")
     if not terms:
@@ -680,6 +688,7 @@ async def lifespan(app: FastAPI):
     async with pool.acquire() as c:
         await c.execute(SCHEMA)
         await c.execute(bnr.SCHEMA)
+        await c.execute(refs.SCHEMA)
     try:                                  # каталог: таблица, перенос из tools.json в пустую базу, загрузка в память
         await cat.init(pool, tools_file_json())
     except Exception as e:
@@ -713,8 +722,10 @@ async def lifespan(app: FastAPI):
     dp.update.outer_middleware(BotThrottle())
     dp.include_router(router)
     dp.include_router(bf.router)
+    dp.include_router(bp.router)
     bf.configure(has_access=has_full_access, tools_json=tools_json, admin_id=TOOL_REVIEW_CHAT, channel_id=CHANNEL_ID,
                  channel_link=CHANNEL_LINK, menu_parts=menu_parts, menu_kb=menu_kb, crypto_token=CRYPTO_PAY_TOKEN, crypto_host=CRYPTO_PAY_HOST)
+    bp.configure(pool=lambda: pool, has_access=has_full_access, tools_json=tools_json, bot_username=lambda: BOT_USERNAME)
     try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
         await bot.delete_webhook(drop_pending_updates=True)
         await diagnose(bot)
@@ -986,6 +997,8 @@ async def track(request: Request, b: Track):
         )
         await site_alert("tool", {"select": "Открыл инструмент", "bot": "Перешёл в бота",
                                   "eternal": "Нажал вечную ссылку"}[b.ev], uid, b.tool or "", ip)
+        if b.ev in refs.QUALIFY and tma_bot:      # человек перешёл в инструмент: засчитываем его пригласившему (фоном)
+            refs.spawn(refs.on_tool_event(pool, bp.sender(tma_bot), uid))
     return {"ok": True}
 
 
