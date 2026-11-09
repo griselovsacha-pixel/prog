@@ -380,8 +380,8 @@ def menu_kb(link: str, icons: bool) -> InlineKeyboardMarkup:
 
     first = []
     if SITE_URL:        # мини-апп внутри Telegram; обычный сайт — рядом, во втором столбце
-        first.append(InlineKeyboardButton(text="Открыть мини-апп", web_app=WebAppInfo(url=f"{SITE_URL}/app/")))
-    first.append(InlineKeyboardButton(text="Открыть сайт" if SITE_URL else "Открыть Harledy Project", url=link))
+        first.append(b("Открыть мини-апп", "bot", "🤖", web_app=WebAppInfo(url=f"{SITE_URL}/app/")))
+    first.append(b("Открыть сайт" if SITE_URL else "Открыть Harledy Project", "site", "🌐", url=link))
     return InlineKeyboardMarkup(inline_keyboard=[
         first,
         [b("Профиль", "profile", "👤", callback_data="profile"),
@@ -725,7 +725,8 @@ async def lifespan(app: FastAPI):
     dp.include_router(bp.router)
     bf.configure(has_access=has_full_access, tools_json=tools_json, admin_id=TOOL_REVIEW_CHAT, channel_id=CHANNEL_ID,
                  channel_link=CHANNEL_LINK, menu_parts=menu_parts, menu_kb=menu_kb, crypto_token=CRYPTO_PAY_TOKEN, crypto_host=CRYPTO_PAY_HOST)
-    bp.configure(pool=lambda: pool, has_access=has_full_access, tools_json=tools_json, bot_username=lambda: BOT_USERNAME)
+    bp.configure(pool=lambda: pool, has_access=has_full_access, tools_json=tools_json, bot_username=lambda: BOT_USERNAME,
+                 admin_id=TOOL_REVIEW_CHAT, admins=lambda: STATUS_ADMINS)
     try:                                  # сбой Telegram при старте не должен ронять сайт: поллинг сам переподключится
         await bot.delete_webhook(drop_pending_updates=True)
         await diagnose(bot)
