@@ -99,7 +99,7 @@
     try { sessionStorage.setItem('k', HDR); } catch (e) {}
     patchFetch(); telegramBits();
     try { for (const s of SCRIPTS) await loadScript(s); }
-    catch (e) { showGate('Не удалось загрузить', 'Проверьте интернет и откройте мини-апп ещё раз.', [{ text: 'Повторить', fn: () => location.reload() }]); return; }
+    catch (e) { showGate('Не удалось загрузить', 'Проверьте интернет и откройте мини-апп ещё раз. Не загрузился: ' + String((e && e.message) || e).slice(0, 120), [{ text: 'Повторить', fn: () => location.reload() }]); return; }
     // держим сессию свежей: сервер помнит вход ограниченное время
     const keep = () => getState();
     setInterval(() => { if (!document.hidden) keep(); }, 10 * 60 * 1000);
