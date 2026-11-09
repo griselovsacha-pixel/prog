@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Harledy Project — сборник инструментов</title>
+<meta name="description" content="Harledy Project — каталог OSINT-инструментов: Telegram-боты и сервисы для поиска по нику, фото, почте, утечкам и метаданным. Статус работы и рейтинг каждого.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Harledy Project — сборник инструментов">
+<meta property="og:description" content="Каталог OSINT-инструментов: цена, VPN, статус работы и рейтинг каждого сервиса.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="/intro-gate.js?v=1"></script>
+<link rel="stylesheet" href="/style.css?v=16">
+</head>
+<body class="intro">
+<div id="hud" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
+
+<div id="splash" aria-hidden="true">
+  <div class="rg"></div><div class="rg g2"></div><div class="rg g3"></div>
+  <div id="lens"><div id="pop"><div class="beam"></div><div id="glass"><div id="lensIn"></div></div><div class="handle"></div></div></div>
+</div>
+
+<div id="brand">
+  <h1>
+    <svg class="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+    <span id="brandText">Harledy Project</span>
+  </h1>
+  <p id="tag">сборник инструментов</p>
+</div>
+<nav id="nav">
+  <a id="navAbout" href="/about">О нас</a>
+  <a id="navCollab" href="/collab">Сотрудничество</a>
+  <a id="navAi" href="/ai">AI</a>
+</nav>
+<div id="topr">
+  <a id="navTerms" href="/terms"><span class="full">Пользовательское соглашение</span><span class="short">Соглашение</span></a>
+  <button id="theme" type="button">Light Mode</button>
+</div>
+<div id="search" role="search" hidden>
+  <div class="sbox">
+    <label class="sfield">
+      <svg class="sico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <input id="q" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100" placeholder="Поиск: инструмент, тег или категория…" aria-label="Поиск по каталогу" role="combobox" aria-expanded="false" aria-controls="sres" aria-autocomplete="list">
+      <button id="qclear" type="button" aria-label="Очистить поиск" hidden>&times;</button>
+    </label>
+    <a id="aiBtn" href="/ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/></svg>Harledy AI</a>
+  </div>
+  <div id="sres" role="listbox" hidden></div>
+</div>
+
+<svg id="tree" role="img" aria-label="Дерево инструментов"></svg>
+<div id="zoom">
+  <button id="zoomIn" type="button" aria-label="Приблизить">+</button>
+  <button id="zoomOut" type="button" aria-label="Отдалить">&minus;</button>
+  <button id="zoomFit" type="button" aria-label="Показать всё дерево">⤢</button>
+</div>
+<p id="stats" hidden></p>
+<p id="hint">Загрузка…</p>
+<div id="deny" hidden></div>
+<noscript><p style="position:fixed;bottom:60px;left:0;right:0;text-align:center"><a href="/osint" style="color:#4f86b3">Каталог OSINT-инструментов</a></p></noscript>
+
+<aside id="panel" aria-hidden="true">
+  <button id="close" type="button" aria-label="Закрыть">&times;</button>
+  <div class="phead">
+    <div class="kicker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>Инструмент</div>
+    <div id="crumb"></div>
+    <h2 id="ptitle"></h2>
+  </div>
+  <div id="pbody">
+    <div id="pbadges"></div>
+    <p id="pdesc"></p>
+    <div id="ptags"></div>
+    <div id="pstatus" class="st mute"></div>
+    <div id="prating"></div>
+    <button id="revM" class="revm" type="button" aria-controls="rev">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.6-4.8A8.4 8.4 0 1 1 21 11.5z"/></svg>
+      <span>Отзывы</span><span class="revcnt" hidden></span><i aria-hidden="true">›</i>
+    </button>
+  </div>
+  <div class="pfoot">
+    <a id="btnBot" class="btn primary" target="_blank" rel="noopener">Перейти в бота ↗</a>
+    <a id="btnEternal" class="btn ghost" target="_blank" rel="noopener">Вечная ссылка</a>
+    <small id="pfootNote">Вечная ссылка работает, если бот неактивен.</small>
+  </div>
+</aside>
+
+<button id="revTab" type="button" aria-controls="rev" aria-expanded="false" title="Отзывы об инструменте">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.6-4.8A8.4 8.4 0 1 1 21 11.5z"/></svg>
+  <span class="rlab">Отзывы</span><span class="revcnt" hidden></span>
+</button>
+<aside id="rev" aria-hidden="true" aria-label="Отзывы об инструменте">
+  <button id="revClose" type="button" aria-label="Закрыть отзывы">&times;</button>
+  <div class="rhead">
+    <div class="kicker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.6-4.8A8.4 8.4 0 1 1 21 11.5z"/></svg>Отзывы</div>
+    <h3 id="revTitle"></h3>
+  </div>
+  <div id="revSum"></div>
+  <div id="revBody">
+    <div id="revForm"></div>
+    <div id="revList"></div>
+    <div id="revMore"></div>
+  </div>
+</aside>
+
+<script src="/app/tma-boot.js?v=2"></script>
+</body>
+</html>
