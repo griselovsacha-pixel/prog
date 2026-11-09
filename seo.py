@@ -9,8 +9,8 @@
 """
 import hashlib
 import html
+import os 
 import json
-import os
 import re
 
 from fastapi import APIRouter
@@ -25,7 +25,7 @@ def configure(**kw):
     D.update(kw)
 
 
-HIDE = re.compile(os.environ.get("SEO_HIDE", r"snos|снос|bomb|бомб|logger|логгер|аккаунт|пробив"), re.I)
+HIDE = re.compile(os.environ.get("SEO_HIDE", ""), re.I)
 
 _TR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
                ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "i", "k", "l", "m", "n", "o", "p", "r", "s", "t",
@@ -67,15 +67,12 @@ def build() -> dict | None:
             if not isinstance(c, dict):
                 continue
             if isinstance(c.get("children"), list):
-                if not path and HIDE.search(str(c.get("name", ""))):
-                    continue
                 walk(c, path + [str(c.get("name", ""))])
                 continue
             name, link = str(c.get("name", "")).strip(), str(c.get("bot") or "").strip()
             if not name or not link or link in links or not path:
                 continue
-            if HIDE.search(" ".join([name] + [str(t) for t in c.get("tags") or []])):
-                continue
+         
             links.add(link)
             tools.append({"slug": _uniq(slugify(name), slugs), "name": name, "cat": path,
                           "desc": str(c.get("desc") or ""), "type": c.get("type"), "price": c.get("price"),
@@ -313,5 +310,5 @@ async def sitemap():
 
 @router.get("/robots.txt")
 async def robots():
-    return Response(f"User-agent: *\nDisallow: /admin\nDisallow: /api/\nAllow: /\n\nSitemap: {D['site']}/sitemap.xml\n",
+    return Response(f"User-agent: *\nDisallow: /admin\nDisallow: /api/\nDisallow: /app/\nAllow: /\n\nSitemap: {D['site']}/sitemap.xml\n",
                     media_type="text/plain")
