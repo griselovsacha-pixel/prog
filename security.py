@@ -230,7 +230,7 @@ CSP_PUBLIC = (
 # Мини-апп (/app/): Telegram Web открывает его во фрейме, а скрипт SDK грузится с telegram.org
 TG_SDK = "https://telegram.org/js/telegram-web-app.js"
 CSP_TMA = (
-    f"default-src 'none'; script-src 'self' {TG_SDK}; style-src 'self' 'unsafe-inline'; "
+    f"default-src 'none'; script-src 'self' {TG_SDK} {D3_URL}; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors https://web.telegram.org https://*.telegram.org https://telegram.org; object-src 'none'"
 )
