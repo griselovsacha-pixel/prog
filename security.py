@@ -227,6 +227,19 @@ CSP_PUBLIC = (
 )
 
 
+# Мини-апп (/app/): Telegram Web открывает его во фрейме, а скрипт SDK грузится с telegram.org
+TG_SDK = "https://telegram.org/js/telegram-web-app.js"
+CSP_TMA = (
+    f"default-src 'none'; script-src 'self' {TG_SDK}; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+    "frame-ancestors https://web.telegram.org https://*.telegram.org https://telegram.org; object-src 'none'"
+)
+
+
+def is_tma(path: str) -> bool:
+    return path == "/app" or path.startswith("/app/")
+
+
 def _inline_hashes(html: str, tag: str) -> list[str]:
     out = []
     for m in re.finditer(rf"<{tag}(?![^>]*\bsrc\s*=)[^>]*>(.*?)</{tag}>", html, re.S | re.I):
@@ -263,11 +276,14 @@ def _cache_value(path: str) -> bytes:
 def finalize_headers(headers, scope) -> list:
     present = {k.lower() for k, _ in headers}
     out = list(headers)
+    tma = is_tma(scope.get("path", "/"))
     for k, v in _SEC:
+        if tma and k == b"x-frame-options":      # мини-апп должен открываться во фрейме Telegram Web (CSP ниже ограничивает кем)
+            continue
         if k not in present:
             out.append((k, v))
     if b"content-security-policy" not in present:
-        out.append((b"content-security-policy", CSP_PUBLIC.encode()))
+        out.append((b"content-security-policy", (CSP_TMA if tma else CSP_PUBLIC).encode()))
     if b"cache-control" not in present:
         out.append((b"cache-control", _cache_value(scope.get("path", "/"))))
     if (HTTPS_SITE or "https" in header(scope, b"x-forwarded-proto")) and b"strict-transport-security" not in present:
