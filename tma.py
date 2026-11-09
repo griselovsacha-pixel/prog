@@ -3,8 +3,7 @@
 Что здесь:
   * validate_init() — проверка подписи initData (HMAC-SHA256 от токена бота, как в документации Telegram).
     Без неё доверять данным пользователя нельзя: initDataUnsafe на клиенте подделывается.
-  * catalog() — каталог для мини-аппа: то же дерево, что и на сайте, но без скрытых веток
-    (TMA_HIDE — по названиям и тегам, TMA_HIDE_TEXT — по описанию), и каждому инструменту добавлены
+  * catalog() — каталог для мини-аппа: то же дерево, что и на сайте, и каждому инструменту добавлены
     slug (для ссылок t.me/…?startapp=tool_<slug>) и key (ключ рейтингов/отзывов/статусов).
 
 Только стандартная библиотека, поэтому модуль проверяется отдельно (tests/test_tma.py).
@@ -18,6 +17,7 @@ from urllib.parse import parse_qsl
 
 SEP = " › "          # тот же разделитель, что в catalog.py и на сайте
 MAX_AGE = 24 * 3600  # initData старше суток не принимаем (при открытии мини-апп Telegram выдаёт свежую)
+
 
 def validate_init(init_data: str, bot_token: str, max_age: int = MAX_AGE, now: float | None = None) -> dict | None:
     """Возвращает {'user': {...}, 'auth_date': int, 'start_param': str} или None, если подпись неверна/устарела."""
@@ -100,10 +100,8 @@ def catalog(body: bytes | None) -> bytes | None:
             if not name or not link or link in used_links or not path:
                 continue
             used_links.add(link)
-            t = {"name": name, "slug": uniq(slugify(name)), "key": SEP.join(path + [name])}
-            for f in FIELDS:
-                if c.get(f) not in (None, ""):
-                    t[f] = c[f]
+            t = {k: v for k, v in c.items() if k != "mstatus"}      # всё, что есть у инструмента на сайте
+            t.update(name=name, slug=uniq(slugify(name)), key=SEP.join(path + [name]))
             kids.append(t)
             count += 1
         return {"name": n.get("name", ""), "children": kids}
